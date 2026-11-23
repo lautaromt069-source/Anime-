@@ -639,9 +639,10 @@ jobs:
                   return struct.pack("!I",len(d))+t+d+struct.pack("!I",zlib.crc32(t+d)&0xffffffff)
               row=bytes([0])+bytes([16,120,82,255])*size
               raw=row*size
-              return b"\\x89PNG\\r\\n\\x1a\\n"+chunk(b"IHDR",struct.pack("!IIBBBBB",size,size,8,6,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
+              return b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack("!IIBBBBB",size,size,8,6,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
           for density,size in {"mdpi":48,"hdpi":72,"xhdpi":96,"xxhdpi":144,"xxxhdpi":192}.items():
               folder=f"br3d_app/app/src/main/res/mipmap-{density}"
+              os.makedirs(folder, exist_ok=True)
               for name in ("ic_launcher.png","ic_launcher_round.png"):
                   with open(os.path.join(folder,name),"wb") as f: f.write(png(size))
           PY
