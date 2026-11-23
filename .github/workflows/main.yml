@@ -103,6 +103,8 @@ jobs:
               <uses-feature android:glEsVersion="0x00020000" android:required="true" />
               <application
                   android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
                   android:label="@string/app_name"
                   android:theme="@style/AppTheme">
                   <activity
@@ -138,7 +140,9 @@ jobs:
           cat > br3d_app/app/src/main/java/com/leb/br3d/MainActivity.kt <<'EOF'
           package com.leb.br3d
 
-          import android.app.Activity
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
           import android.opengl.GLES20
           import android.opengl.GLSurfaceView
           import android.opengl.Matrix
@@ -149,11 +153,13 @@ jobs:
           import android.widget.Button
           import android.widget.FrameLayout
           import android.widget.TextView
+          import androidx.appcompat.app.AppCompatActivity
           import java.nio.ByteBuffer
           import java.nio.ByteOrder
           import java.nio.FloatBuffer
           import javax.microedition.khronos.egl.EGLConfig
           import javax.microedition.khronos.opengles.GL10
+          import kotlin.math.abs
           import kotlin.math.cos
           import kotlin.math.hypot
           import kotlin.math.sin
@@ -188,13 +194,16 @@ jobs:
 
               init { reset() }
 
+              @Synchronized
               fun reset() {
                   px = 0f; pz = 14f; yaw = 0f
                   hp = 100; shield = 50; ammo = 90; kills = 0
                   sprint = false; fire = false; over = false; tick = 0; zone = 48f
                   bots.clear()
-                  listOf(-24f to -20f, 23f to -22f, 0f to -36f, -29f to 4f,
-                      29f to 5f, -10f to -31f, 15f to -30f, 25f to 24f).forEach {
+                  listOf(
+                      -24f to -20f, 23f to -22f, 0f to -36f, -29f to 4f,
+                      29f to 5f, -10f to -31f, 15f to -30f, 25f to 24f
+                  ).forEach {
                       bots.add(Bot(it.first, it.second, 100, Random.nextFloat() * 6f))
                   }
                   pickups.clear()
@@ -205,6 +214,7 @@ jobs:
                   ))
               }
 
+              @Synchronized
               fun update(forward: Float, right: Float) {
                   if (over) return
                   tick++
@@ -218,7 +228,7 @@ jobs:
                   val iterator = pickups.iterator()
                   while (iterator.hasNext()) {
                       val p = iterator.next()
-                      if (hypot((p.x-px).toDouble(), (p.z-pz).toDouble()) < 1.7) {
+                      if (hypot((p.x - px).toDouble(), (p.z - pz).toDouble()) < 1.7) {
                           when (p.kind) {
                               0 -> hp = (hp + 30).coerceAtMost(100)
                               1 -> shield = (shield + 30).coerceAtMost(100)
@@ -245,14 +255,14 @@ jobs:
                   if (fire && ammo > 0 && tick % 10 == 0) {
                       ammo--
                       val target = bots.minByOrNull {
-                          hypot((it.x-px).toDouble(), (it.z-pz).toDouble())
+                          hypot((it.x - px).toDouble(), (it.z - pz).toDouble())
                       }
                       if (target != null) {
                           val dx = target.x - px
                           val dz = target.z - pz
                           val aim = cos(yaw) * dx - sin(yaw) * dz
                           val distance = hypot(dx.toDouble(), dz.toDouble()).toFloat()
-                          if (distance < 24f && kotlin.math.abs(aim) < distance * 0.32f) {
+                          if (distance < 24f && abs(aim) < distance * 0.32f) {
                               target.hp -= 25
                               if (target.hp <= 0) {
                                   bots.remove(target)
@@ -272,23 +282,25 @@ jobs:
               }
 
               private fun blocked(x: Float, z: Float): Boolean {
-                  if (buildings.any { x > it.x-it.w/2-0.6f && x < it.x+it.w/2+0.6f &&
-                      z > it.z-it.d/2-0.6f && z < it.z+it.d/2+0.6f }) return true
-                  return false
+                  return buildings.any {
+                      x > it.x - it.w / 2 - 0.6f && x < it.x + it.w / 2 + 0.6f &&
+                          z > it.z - it.d / 2 - 0.6f && z < it.z + it.d / 2 + 0.6f
+                  }
               }
           }
 
-          class MainActivity : Activity() {
+          class MainActivity : AppCompatActivity() {
               private lateinit var surface: GLSurfaceView
               private val world = World()
               private lateinit var hud: Hud
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
+                  @Suppress("DEPRECATION")
                   window.decorView.systemUiVisibility =
                       View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                      View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                          View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                          View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
 
                   val root = FrameLayout(this)
                   surface = GLSurfaceView(this).apply {
@@ -307,7 +319,7 @@ jobs:
               override fun onResume() { super.onResume(); surface.onResume() }
           }
 
-          private class Hud(context: Activity, private val world: World) : FrameLayout(context) {
+          private class Hud(context: AppCompatActivity, private val world: World) : FrameLayout(context) {
               private var joyId = -1
               private var lookId = -1
               private var baseX = 145f
@@ -319,33 +331,45 @@ jobs:
               private var moveF = 0f
               private var moveR = 0f
               private val radius = 88f
+
               private val info = TextView(context).apply {
-                  setTextColor(0xffffffff.toInt())
+                  setTextColor(Color.WHITE)
                   textSize = 15f
                   setPadding(22, 16, 22, 12)
-                  setBackgroundColor(0x66303b46)
+                  setBackgroundColor(0x66303b46.toInt())
               }
-              private val fireButton = Button(context).apply { text = "JUGAR"; textSize = 12f }
+              private val fireButton = Button(context).apply { text = "DISPARAR"; textSize = 12f }
               private val sprintButton = Button(context).apply { text = "CORRER"; textSize = 10f }
-              private val resetButton = Button(context).apply { text = "REINICIAR"; textSize = 10f; visibility = View.GONE }
+              private val resetButton = Button(context).apply {
+                  text = "REINICIAR"
+                  textSize = 10f
+                  visibility = View.GONE
+              }
 
               init {
                   setWillNotDraw(false)
                   addView(info, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START))
-                  addView(fireButton, LayoutParams(130, 66, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0,0,38,38) })
-                  addView(sprintButton, LayoutParams(112, 54, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0,0,188,42) })
-                  addView(resetButton, LayoutParams(170, 62, Gravity.CENTER))
-                  fireButton.text = "DISPARAR"
+                  addView(fireButton, LayoutParams(140, 66, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 38, 38) })
+                  addView(sprintButton, LayoutParams(116, 54, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 192, 42) })
+                  addView(resetButton, LayoutParams(220, 66, Gravity.CENTER))
+
                   fireButton.setOnTouchListener { _, event ->
                       world.fire = event.action != MotionEvent.ACTION_UP && event.action != MotionEvent.ACTION_CANCEL
                       true
                   }
-                  sprintButton.setOnClickListener { world.sprint = !world.sprint; sprintButton.text = if (world.sprint) "CORRER ON" else "CORRER" }
-                  resetButton.setOnClickListener { world.reset(); resetButton.visibility = View.GONE }
+                  sprintButton.setOnClickListener {
+                      world.sprint = !world.sprint
+                      sprintButton.text = if (world.sprint) "CORRER ON" else "CORRER"
+                  }
+                  resetButton.setOnClickListener {
+                      world.reset()
+                      resetButton.visibility = View.GONE
+                  }
+
                   post(object : Runnable {
                       override fun run() {
                           world.update(moveF, moveR)
-                          info.text = "L.E.B-M BR 3D  v1.1\\nVIDA ${world.hp}   ESCUDO ${world.shield}   MUNICIÓN ${world.ammo}\\nRIVALES ${world.bots.size}   BAJAS ${world.kills}"
+                          info.text = "L.E.B-M BR 3D  v1.1\nVIDA ${world.hp}   ESCUDO ${world.shield}   MUNICIÓN ${world.ammo}\nRIVALES ${world.bots.size}   BAJAS ${world.kills}"
                           if (world.over) {
                               resetButton.visibility = View.VISIBLE
                               resetButton.text = if (world.hp > 0) "¡VICTORIA!  REINICIAR" else "FIN DE PARTIDA  REINICIAR"
@@ -357,8 +381,9 @@ jobs:
               }
 
               override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                  super.onSizeChanged(w, h, oldw, oldh)
                   baseX = 145f
-                  baseY = h - 140f
+                  baseY = (h - 140f).coerceAtLeast(120f)
                   knobX = baseX
                   knobY = baseY
               }
@@ -369,26 +394,37 @@ jobs:
                       MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                           val i = e.actionIndex
                           val id = e.getPointerId(i)
-                          val x = e.getX(i); val y = e.getY(i)
+                          val x = e.getX(i)
+                          val y = e.getY(i)
                           if (x < width * 0.42f && joyId == -1) {
                               joyId = id
                               setJoy(x, y)
-                          } else if (x > width * 0.42f && lookId == -1) {
-                              lookId = id; lookX = x; lookY = y
+                          } else if (x >= width * 0.42f && lookId == -1) {
+                              lookId = id
+                              lookX = x
+                              lookY = y
                           }
                       }
                       MotionEvent.ACTION_MOVE -> for (i in 0 until e.pointerCount) {
                           val id = e.getPointerId(i)
-                          val x = e.getX(i); val y = e.getY(i)
+                          val x = e.getX(i)
+                          val y = e.getY(i)
                           if (id == joyId) setJoy(x, y)
                           if (id == lookId) {
-                              world.yaw -= (x-lookX) * 0.006f
-                              lookX = x; lookY = y
+                              world.yaw -= (x - lookX) * 0.006f
+                              lookX = x
+                              lookY = y
                           }
                       }
                       MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                           val id = e.getPointerId(e.actionIndex)
-                          if (id == joyId) { joyId = -1; moveF = 0f; moveR = 0f; knobX = baseX; knobY = baseY }
+                          if (id == joyId) {
+                              joyId = -1
+                              moveF = 0f
+                              moveR = 0f
+                              knobX = baseX
+                              knobY = baseY
+                          }
                           if (id == lookId) lookId = -1
                       }
                   }
@@ -396,24 +432,29 @@ jobs:
               }
 
               private fun setJoy(x: Float, y: Float) {
-                  var dx = x-baseX; var dy = y-baseY
+                  var dx = x - baseX
+                  var dy = y - baseY
                   val d = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                  if (d > radius) { dx *= radius/d; dy *= radius/d }
-                  knobX = baseX+dx; knobY = baseY+dy
-                  moveR = (dx/radius).coerceIn(-1f,1f)
-                  moveF = (-dy/radius).coerceIn(-1f,1f)
+                  if (d > radius) {
+                      dx *= radius / d
+                      dy *= radius / d
+                  }
+                  knobX = baseX + dx
+                  knobY = baseY + dy
+                  moveR = (dx / radius).coerceIn(-1f, 1f)
+                  moveF = (-dy / radius).coerceIn(-1f, 1f)
               }
 
-              override fun onDraw(canvas: android.graphics.Canvas) {
+              override fun onDraw(canvas: Canvas) {
                   super.onDraw(canvas)
-                  val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                      color = 0x55ffffff
-                      style = android.graphics.Paint.Style.STROKE
+                  val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      color = 0x55ffffff.toInt()
+                      style = Paint.Style.STROKE
                       strokeWidth = 4f
                   }
                   canvas.drawCircle(baseX, baseY, radius, p)
                   p.color = 0x9958bdf8.toInt()
-                  p.style = android.graphics.Paint.Style.FILL
+                  p.style = Paint.Style.FILL
                   canvas.drawCircle(knobX, knobY, 35f, p)
               }
           }
@@ -464,7 +505,8 @@ jobs:
                   val vs = shader(GLES20.GL_VERTEX_SHADER, vertex)
                   val fs = shader(GLES20.GL_FRAGMENT_SHADER, fragment)
                   program = GLES20.glCreateProgram()
-                  GLES20.glAttachShader(program, vs); GLES20.glAttachShader(program, fs)
+                  GLES20.glAttachShader(program, vs)
+                  GLES20.glAttachShader(program, fs)
                   GLES20.glLinkProgram(program)
                   pos = GLES20.glGetAttribLocation(program, "aPosition")
                   normal = GLES20.glGetAttribLocation(program, "aNormal")
@@ -479,7 +521,7 @@ jobs:
 
               override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
                   GLES20.glViewport(0, 0, width, height)
-                  Matrix.perspectiveM(projection, 0, 62f, width.toFloat()/height.coerceAtLeast(1), 0.2f, 150f)
+                  Matrix.perspectiveM(projection, 0, 62f, width.toFloat() / height.coerceAtLeast(1), 0.2f, 150f)
               }
 
               override fun onDrawFrame(gl: GL10?) {
@@ -490,144 +532,142 @@ jobs:
                   synchronized(world) {
                       val lx = -sin(world.yaw)
                       val lz = -cos(world.yaw)
-                      val cx = world.px - lx*5.2f
-                      val cz = world.pz - lz*5.2f
-                      Matrix.setLookAtM(view, 0, cx, 3.5f, cz, world.px+lx*5f, 1.1f, world.pz+lz*5f, 0f,1f,0f)
+                      val cx = world.px - lx * 5.2f
+                      val cz = world.pz - lz * 5.2f
+                      Matrix.setLookAtM(view, 0, cx, 3.5f, cz, world.px + lx * 5f, 1.1f, world.pz + lz * 5f, 0f, 1f, 0f)
                       Matrix.multiplyMM(vp, 0, projection, 0, view, 0)
 
-                      // Isla, suelo por parcelas y caminos
-                      box(0f,-0.35f,0f,100f,0.5f,100f, floatArrayOf(0.24f,0.43f,0.20f,1f))
-                      box(0f,-0.08f,0f,5f,0.08f,94f, floatArrayOf(0.39f,0.36f,0.29f,1f))
-                      box(0f,-0.07f,0f,94f,0.08f,5f, floatArrayOf(0.39f,0.36f,0.29f,1f))
-                      // Parcelas de hierba para romper la uniformidad
+                      box(0f, -0.35f, 0f, 100f, 0.5f, 100f, floatArrayOf(0.24f, 0.43f, 0.20f, 1f))
+                      box(0f, -0.08f, 0f, 5f, 0.08f, 94f, floatArrayOf(0.39f, 0.36f, 0.29f, 1f))
+                      box(0f, -0.07f, 0f, 94f, 0.08f, 5f, floatArrayOf(0.39f, 0.36f, 0.29f, 1f))
                       for (i in -4..4) for (j in -4..4) {
-                          if ((i+j)%3 == 0) box(i*10f+2f,-0.06f,j*10f+2f,7f,0.035f,7f,floatArrayOf(0.20f,0.39f,0.17f,1f))
+                          if ((i + j) % 3 == 0) box(i * 10f + 2f, -0.06f, j * 10f + 2f, 7f, 0.035f, 7f, floatArrayOf(0.20f, 0.39f, 0.17f, 1f))
                       }
 
-                      // Edificios, tejados y ventanas
                       world.buildings.forEach { b ->
-                          box(b.x,b.h/2f,b.z,b.w,b.h,b.d,floatArrayOf(0.48f,0.49f,0.47f,1f))
-                          box(b.x,b.h+0.18f,b.z,b.w+0.5f,0.35f,b.d+0.5f,floatArrayOf(0.28f,0.22f,0.18f,1f))
-                          for (side in listOf(-1f,1f)) {
-                              box(b.x+side*(b.w/2f+0.012f),b.h*0.62f,b.z,b.w*0.018f,1.1f,1.0f,floatArrayOf(0.20f,0.48f,0.62f,1f))
+                          box(b.x, b.h / 2f, b.z, b.w, b.h, b.d, floatArrayOf(0.48f, 0.49f, 0.47f, 1f))
+                          box(b.x, b.h + 0.18f, b.z, b.w + 0.5f, 0.35f, b.d + 0.5f, floatArrayOf(0.28f, 0.22f, 0.18f, 1f))
+                          for (side in listOf(-1f, 1f)) {
+                              box(b.x + side * (b.w / 2f + 0.012f), b.h * 0.62f, b.z, b.w * 0.018f, 1.1f, 1.0f, floatArrayOf(0.20f, 0.48f, 0.62f, 1f))
                           }
-                          box(b.x,b.h*0.42f,b.z+b.d/2f+0.025f,1.0f,1.65f,0.08f,floatArrayOf(0.22f,0.16f,0.12f,1f))
+                          box(b.x, b.h * 0.42f, b.z + b.d / 2f + 0.025f, 1.0f, 1.65f, 0.08f, floatArrayOf(0.22f, 0.16f, 0.12f, 1f))
                       }
 
-                      // Árboles con tronco y copas esféricas
                       for (i in -4..4) for (j in -4..4) {
-                          val x = i*9.2f + if (j%2==0) 3f else -2f
-                          val z = j*9.4f - 3f
-                          if (kotlin.math.abs(x) > 24f || kotlin.math.abs(z) > 24f) tree(x,z, (i+j)*0.2f)
+                          val x = i * 9.2f + if (j % 2 == 0) 3f else -2f
+                          val z = j * 9.4f - 3f
+                          if (abs(x) > 24f || abs(z) > 24f) tree(x, z)
                       }
 
-                      // Rocas decorativas
                       for (i in 0..17) {
-                          val x = ((i*17)%79-39).toFloat()
-                          val z = ((i*29)%83-41).toFloat()
-                          if (kotlin.math.abs(x)>25f || kotlin.math.abs(z)>25f)
-                              sphereAt(x,0.05f,z,0.8f,0.45f,0.65f,floatArrayOf(0.39f,0.40f,0.38f,1f))
+                          val x = ((i * 17) % 79 - 39).toFloat()
+                          val z = ((i * 29) % 83 - 41).toFloat()
+                          if (abs(x) > 25f || abs(z) > 25f)
+                              sphereAt(x, 0.05f, z, 0.8f, 0.45f, 0.65f, floatArrayOf(0.39f, 0.40f, 0.38f, 1f))
                       }
 
-                      // Objetos recogibles
                       world.pickups.forEach {
-                          val c = when(it.kind) {
-                              0 -> floatArrayOf(0.16f,0.82f,0.38f,1f)
-                              1 -> floatArrayOf(0.15f,0.65f,0.92f,1f)
-                              else -> floatArrayOf(0.95f,0.70f,0.16f,1f)
+                          val c = when (it.kind) {
+                              0 -> floatArrayOf(0.16f, 0.82f, 0.38f, 1f)
+                              1 -> floatArrayOf(0.15f, 0.65f, 0.92f, 1f)
+                              else -> floatArrayOf(0.95f, 0.70f, 0.16f, 1f)
                           }
-                          sphereAt(it.x,0.55f,it.z,0.42f,0.48f,0.42f,c)
+                          sphereAt(it.x, 0.55f, it.z, 0.42f, 0.48f, 0.42f, c)
                       }
 
-                      // Bots y jugador con extremidades articuladas sencillas
                       world.bots.forEach { bot ->
-                          character(bot.x,bot.z,0.9f,bot.phase,floatArrayOf(0.70f,0.18f,0.16f,1f))
+                          character(bot.x, bot.z, 0.9f, bot.phase, floatArrayOf(0.70f, 0.18f, 0.16f, 1f))
                       }
-                      character(world.px,world.pz,1.0f,frame*0.09f,floatArrayOf(0.12f,0.42f,0.82f,1f))
+                      character(world.px, world.pz, 1.0f, frame * 0.09f, floatArrayOf(0.12f, 0.42f, 0.82f, 1f))
                       frame++
                   }
                   GLES20.glDisableVertexAttribArray(pos)
                   GLES20.glDisableVertexAttribArray(normal)
               }
 
-              private fun tree(x: Float,z: Float,phase: Float) {
-                  box(x,1.0f,z,0.42f,2f,0.42f,floatArrayOf(0.30f,0.19f,0.10f,1f))
-                  sphereAt(x,2.55f,z,1.25f,1.45f,1.25f,floatArrayOf(0.12f,0.36f,0.16f,1f))
-                  sphereAt(x+0.48f,2.35f,z+0.1f,0.78f,0.95f,0.82f,floatArrayOf(0.16f,0.43f,0.19f,1f))
+              private fun tree(x: Float, z: Float) {
+                  box(x, 1.0f, z, 0.42f, 2f, 0.42f, floatArrayOf(0.30f, 0.19f, 0.10f, 1f))
+                  sphereAt(x, 2.55f, z, 1.25f, 1.45f, 1.25f, floatArrayOf(0.12f, 0.36f, 0.16f, 1f))
+                  sphereAt(x + 0.48f, 2.35f, z + 0.1f, 0.78f, 0.95f, 0.82f, floatArrayOf(0.16f, 0.43f, 0.19f, 1f))
               }
 
-              private fun character(x: Float,z: Float,s: Float,phase: Float,color: FloatArray) {
-                  val swing = sin(phase)*0.22f
-                  // Piernas y botas
-                  box(x-0.20f*s,0.42f*s,z,0.23f*s,0.78f*s,0.25f*s,floatArrayOf(0.12f,0.16f,0.19f,1f))
-                  box(x+0.20f*s,0.42f*s,z,0.23f*s,0.78f*s,0.25f*s,floatArrayOf(0.12f,0.16f,0.19f,1f))
-                  box(x-0.20f*s,0.08f*s,z+0.10f*s,0.30f*s,0.16f*s,0.42f*s,floatArrayOf(0.08f,0.09f,0.10f,1f))
-                  box(x+0.20f*s,0.08f*s,z+0.10f*s,0.30f*s,0.16f*s,0.42f*s,floatArrayOf(0.08f,0.09f,0.10f,1f))
-                  // Torso, hombros y brazos
-                  box(x,1.25f*s,z,0.86f*s,0.88f*s,0.42f*s,color)
-                  box(x-0.56f*s,1.22f*s+swing,z,0.22f*s,0.75f*s,0.24f*s,color)
-                  box(x+0.56f*s,1.22f*s-swing,z,0.22f*s,0.75f*s,0.24f*s,color)
-                  sphereAt(x,1.95f*s,z,0.29f*s,0.32f*s,0.29f*s,floatArrayOf(0.76f,0.61f,0.49f,1f))
+              private fun character(x: Float, z: Float, s: Float, phase: Float, color: FloatArray) {
+                  val swing = sin(phase) * 0.22f
+                  box(x - 0.20f * s, 0.42f * s, z, 0.23f * s, 0.78f * s, 0.25f * s, floatArrayOf(0.12f, 0.16f, 0.19f, 1f))
+                  box(x + 0.20f * s, 0.42f * s, z, 0.23f * s, 0.78f * s, 0.25f * s, floatArrayOf(0.12f, 0.16f, 0.19f, 1f))
+                  box(x - 0.20f * s, 0.08f * s, z + 0.10f * s, 0.30f * s, 0.16f * s, 0.42f * s, floatArrayOf(0.08f, 0.09f, 0.10f, 1f))
+                  box(x + 0.20f * s, 0.08f * s, z + 0.10f * s, 0.30f * s, 0.16f * s, 0.42f * s, floatArrayOf(0.08f, 0.09f, 0.10f, 1f))
+                  box(x, 1.25f * s, z, 0.86f * s, 0.88f * s, 0.42f * s, color)
+                  box(x - 0.56f * s, 1.22f * s + swing, z, 0.22f * s, 0.75f * s, 0.24f * s, color)
+                  box(x + 0.56f * s, 1.22f * s - swing, z, 0.22f * s, 0.75f * s, 0.24f * s, color)
+                  sphereAt(x, 1.95f * s, z, 0.29f * s, 0.32f * s, 0.29f * s, floatArrayOf(0.76f, 0.61f, 0.49f, 1f))
               }
 
-              private fun box(x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,c:FloatArray) {
-                  draw(cube!!,36,x,y,z,sx,sy,sz,c)
+              private fun box(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, c: FloatArray) {
+                  draw(cube!!, 36, x, y, z, sx, sy, sz, c)
               }
-              private fun sphereAt(x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,c:FloatArray) {
-                  draw(sphere!!,sphereCount,x,y,z,sx,sy,sz,c)
+
+              private fun sphereAt(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, c: FloatArray) {
+                  draw(sphere!!, sphereCount, x, y, z, sx, sy, sz, c)
               }
-              private fun draw(buf:FloatBuffer,count:Int,x:Float,y:Float,z:Float,sx:Float,sy:Float,sz:Float,c:FloatArray) {
-                  Matrix.setIdentityM(modelMatrix,0)
-                  Matrix.translateM(modelMatrix,0,x,y,z)
-                  Matrix.scaleM(modelMatrix,0,sx,sy,sz)
-                  Matrix.multiplyMM(mvpMatrix,0,vp,0,modelMatrix,0)
-                  GLES20.glUniformMatrix4fv(mvp,1,false,mvpMatrix,0)
-                  GLES20.glUniformMatrix4fv(model,1,false,modelMatrix,0)
-                  GLES20.glUniform4fv(tint,1,c,0)
+
+              private fun draw(buf: FloatBuffer, count: Int, x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, c: FloatArray) {
+                  Matrix.setIdentityM(modelMatrix, 0)
+                  Matrix.translateM(modelMatrix, 0, x, y, z)
+                  Matrix.scaleM(modelMatrix, 0, sx, sy, sz)
+                  Matrix.multiplyMM(mvpMatrix, 0, vp, 0, modelMatrix, 0)
+                  GLES20.glUniformMatrix4fv(mvp, 1, false, mvpMatrix, 0)
+                  GLES20.glUniformMatrix4fv(model, 1, false, modelMatrix, 0)
+                  GLES20.glUniform4fv(tint, 1, c, 0)
                   buf.position(0)
-                  GLES20.glVertexAttribPointer(pos,3,GLES20.GL_FLOAT,false,24,buf)
+                  GLES20.glVertexAttribPointer(pos, 3, GLES20.GL_FLOAT, false, 24, buf)
                   buf.position(3)
-                  GLES20.glVertexAttribPointer(normal,3,GLES20.GL_FLOAT,false,24,buf)
-                  GLES20.glDrawArrays(GLES20.GL_TRIANGLES,0,count)
+                  GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 24, buf)
+                  GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
               }
 
-              private fun shader(type:Int,src:String):Int {
-                  val s=GLES20.glCreateShader(type)
-                  GLES20.glShaderSource(s,src); GLES20.glCompileShader(s)
-                  val status=IntArray(1); GLES20.glGetShaderiv(s,GLES20.GL_COMPILE_STATUS,status,0)
-                  if(status[0]==0) throw IllegalStateException(GLES20.glGetShaderInfoLog(s))
+              private fun shader(type: Int, src: String): Int {
+                  val s = GLES20.glCreateShader(type)
+                  GLES20.glShaderSource(s, src)
+                  GLES20.glCompileShader(s)
+                  val status = IntArray(1)
+                  GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, status, 0)
+                  if (status[0] == 0) throw IllegalStateException(GLES20.glGetShaderInfoLog(s))
                   return s
               }
-              private fun buffer(a:FloatArray):FloatBuffer =
-                  ByteBuffer.allocateDirect(a.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(a); position(0) }
 
-              private fun cubeData():FloatArray {
-                  val out=ArrayList<Float>()
-                  fun face(a:FloatArray,b:FloatArray,c:FloatArray,d:FloatArray,n:FloatArray) {
-                      listOf(a,b,c,a,c,d).forEach { v -> v.forEach { out.add(it) }; n.forEach { out.add(it) } }
+              private fun buffer(a: FloatArray): FloatBuffer =
+                  ByteBuffer.allocateDirect(a.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(a); position(0) }
+
+              private fun cubeData(): FloatArray {
+                  val out = ArrayList<Float>()
+                  fun face(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray, n: FloatArray) {
+                      listOf(a, b, c, a, c, d).forEach { v -> v.forEach { out.add(it) }; n.forEach { out.add(it) } }
                   }
-                  face(floatArrayOf(-.5f,0f,.5f),floatArrayOf(.5f,0f,.5f),floatArrayOf(.5f,1f,.5f),floatArrayOf(-.5f,1f,.5f),floatArrayOf(0f,0f,1f))
-                  face(floatArrayOf(.5f,0f,-.5f),floatArrayOf(-.5f,0f,-.5f),floatArrayOf(-.5f,1f,-.5f),floatArrayOf(.5f,1f,-.5f),floatArrayOf(0f,0f,-1f))
-                  face(floatArrayOf(-.5f,0f,-.5f),floatArrayOf(-.5f,0f,.5f),floatArrayOf(-.5f,1f,.5f),floatArrayOf(-.5f,1f,-.5f),floatArrayOf(-1f,0f,0f))
-                  face(floatArrayOf(.5f,0f,.5f),floatArrayOf(.5f,0f,-.5f),floatArrayOf(.5f,1f,-.5f),floatArrayOf(.5f,1f,.5f),floatArrayOf(1f,0f,0f))
-                  face(floatArrayOf(-.5f,1f,.5f),floatArrayOf(.5f,1f,.5f),floatArrayOf(.5f,1f,-.5f),floatArrayOf(-.5f,1f,-.5f),floatArrayOf(0f,1f,0f))
-                  face(floatArrayOf(-.5f,0f,-.5f),floatArrayOf(.5f,0f,-.5f),floatArrayOf(.5f,0f,.5f),floatArrayOf(-.5f,0f,.5f),floatArrayOf(0f,-1f,0f))
+                  face(floatArrayOf(-.5f, 0f, .5f), floatArrayOf(.5f, 0f, .5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(-.5f, 1f, .5f), floatArrayOf(0f, 0f, 1f))
+                  face(floatArrayOf(.5f, 0f, -.5f), floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(0f, 0f, -1f))
+                  face(floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(-.5f, 0f, .5f), floatArrayOf(-.5f, 1f, .5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(-1f, 0f, 0f))
+                  face(floatArrayOf(.5f, 0f, .5f), floatArrayOf(.5f, 0f, -.5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(1f, 0f, 0f))
+                  face(floatArrayOf(-.5f, 1f, .5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(0f, 1f, 0f))
+                  face(floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(.5f, 0f, -.5f), floatArrayOf(.5f, 0f, .5f), floatArrayOf(-.5f, 0f, .5f), floatArrayOf(0f, -1f, 0f))
                   return out.toFloatArray()
               }
 
-              private fun sphereData(lat:Int,lon:Int):Pair<FloatArray,Int> {
-                  val out=ArrayList<Float>()
-                  fun vertex(p:FloatArray) { p.forEach { out.add(it) }; p.forEach { out.add(it) } }
-                  for(i in 0 until lat) {
-                      val a0=Math.PI*i/lat; val a1=Math.PI*(i+1)/lat
-                      for(j in 0 until lon) {
-                          val b0=2*Math.PI*j/lon; val b1=2*Math.PI*(j+1)/lon
-                          fun p(a:Double,b:Double)=floatArrayOf((sin(a)*cos(b)).toFloat(),cos(a).toFloat(),(sin(a)*sin(b)).toFloat())
-                          val p1=p(a0,b0); val p2=p(a1,b0); val p3=p(a1,b1); val p4=p(a0,b1)
-                          vertex(p1);vertex(p2);vertex(p3);vertex(p1);vertex(p3);vertex(p4)
+              private fun sphereData(lat: Int, lon: Int): Pair<FloatArray, Int> {
+                  val out = ArrayList<Float>()
+                  fun vertex(p: FloatArray) { p.forEach { out.add(it) }; p.forEach { out.add(it) } }
+                  for (i in 0 until lat) {
+                      val a0 = Math.PI * i / lat
+                      val a1 = Math.PI * (i + 1) / lat
+                      for (j in 0 until lon) {
+                          val b0 = 2 * Math.PI * j / lon
+                          val b1 = 2 * Math.PI * (j + 1) / lon
+                          fun p(a: Double, b: Double) = floatArrayOf((sin(a) * cos(b)).toFloat(), cos(a).toFloat(), (sin(a) * sin(b)).toFloat())
+                          val p1 = p(a0, b0); val p2 = p(a1, b0); val p3 = p(a1, b1); val p4 = p(a0, b1)
+                          vertex(p1); vertex(p2); vertex(p3); vertex(p1); vertex(p3); vertex(p4)
                       }
                   }
-                  return Pair(out.toFloatArray(),lat*lon*6)
+                  return Pair(out.toFloatArray(), lat * lon * 6)
               }
           }
           EOF
@@ -635,16 +675,17 @@ jobs:
           python3 - <<'PY'
           import os, struct, zlib
           def png(size):
-              def chunk(t,d):
-                  return struct.pack("!I",len(d))+t+d+struct.pack("!I",zlib.crc32(t+d)&0xffffffff)
-              row=bytes([0])+bytes([16,120,82,255])*size
-              raw=row*size
-              return b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack("!IIBBBBB",size,size,8,6,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
-          for density,size in {"mdpi":48,"hdpi":72,"xhdpi":96,"xxhdpi":144,"xxxhdpi":192}.items():
-              folder=f"br3d_app/app/src/main/res/mipmap-{density}"
+              def chunk(t, d):
+                  return struct.pack("!I", len(d)) + t + d + struct.pack("!I", zlib.crc32(t + d) & 0xffffffff)
+              row = bytes([0]) + bytes([16, 120, 82, 255]) * size
+              raw = row * size
+              return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!IIBBBBB", size, size, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+          for density, size in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+              folder = f"br3d_app/app/src/main/res/mipmap-{density}"
               os.makedirs(folder, exist_ok=True)
-              for name in ("ic_launcher.png","ic_launcher_round.png"):
-                  with open(os.path.join(folder,name),"wb") as f: f.write(png(size))
+              for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                  with open(os.path.join(folder, name), "wb") as f:
+                      f.write(png(size))
           PY
 
       - name: Set up Java 17
