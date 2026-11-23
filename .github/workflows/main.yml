@@ -1,4 +1,4 @@
-name: Build L.E.B-M Battle Royale 3D v1.2 APK
+name: Build L.E.B-M Royale 3D v1.3 APK
 
 on:
   push:
@@ -15,20 +15,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate new 3D Battle Royale project
+      - name: Generate L.E.B-M Royale 3D v1.3 project
         shell: bash
         run: |
           set -e
-          rm -rf lebm_br3d_v12
-          mkdir -p lebm_br3d_v12/app/src/main/java/com/lebm/royale3d \
-                   lebm_br3d_v12/app/src/main/res/values \
-                   lebm_br3d_v12/app/src/main/res/mipmap-mdpi \
-                   lebm_br3d_v12/app/src/main/res/mipmap-hdpi \
-                   lebm_br3d_v12/app/src/main/res/mipmap-xhdpi \
-                   lebm_br3d_v12/app/src/main/res/mipmap-xxhdpi \
-                   lebm_br3d_v12/app/src/main/res/mipmap-xxxhdpi
+          rm -rf lebm_royale_v13
+          mkdir -p lebm_royale_v13/app/src/main/java/com/lebm/royale3d \
+                   lebm_royale_v13/app/src/main/res/values \
+                   lebm_royale_v13/app/src/main/res/mipmap-mdpi \
+                   lebm_royale_v13/app/src/main/res/mipmap-hdpi \
+                   lebm_royale_v13/app/src/main/res/mipmap-xhdpi \
+                   lebm_royale_v13/app/src/main/res/mipmap-xxhdpi \
+                   lebm_royale_v13/app/src/main/res/mipmap-xxxhdpi
 
-          cat > lebm_br3d_v12/settings.gradle <<'EOF'
+          cat > lebm_royale_v13/settings.gradle <<'EOF'
           pluginManagement {
               repositories {
                   google()
@@ -47,20 +47,20 @@ jobs:
           include(":app")
           EOF
 
-          cat > lebm_br3d_v12/build.gradle <<'EOF'
+          cat > lebm_royale_v13/build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.5.2' apply false
               id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
           }
           EOF
 
-          cat > lebm_br3d_v12/gradle.properties <<'EOF'
+          cat > lebm_royale_v13/gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
           android.useAndroidX=true
           kotlin.code.style=official
           EOF
 
-          cat > lebm_br3d_v12/app/build.gradle <<'EOF'
+          cat > lebm_royale_v13/app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
               id 'org.jetbrains.kotlin.android'
@@ -74,8 +74,8 @@ jobs:
                   applicationId "com.lebm.royale3d"
                   minSdk 24
                   targetSdk 34
-                  versionCode 3
-                  versionName "1.2"
+                  versionCode 4
+                  versionName "1.3"
               }
 
               buildTypes {
@@ -97,7 +97,7 @@ jobs:
           }
           EOF
 
-          cat > lebm_br3d_v12/app/src/main/AndroidManifest.xml <<'EOF'
+          cat > lebm_royale_v13/app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-feature android:glEsVersion="0x00020000" android:required="true" />
@@ -120,13 +120,13 @@ jobs:
           </manifest>
           EOF
 
-          cat > lebm_br3d_v12/app/src/main/res/values/strings.xml <<'EOF'
+          cat > lebm_royale_v13/app/src/main/res/values/strings.xml <<'EOF'
           <resources>
               <string name="app_name">L.E.B-M Royale 3D</string>
           </resources>
           EOF
 
-          cat > lebm_br3d_v12/app/src/main/java/com/lebm/royale3d/MainActivity.kt <<'EOF'
+          cat > lebm_royale_v13/app/src/main/java/com/lebm/royale3d/MainActivity.kt <<'EOF'
           package com.lebm.royale3d
 
           import android.graphics.Canvas
@@ -136,6 +136,8 @@ jobs:
           import android.opengl.GLSurfaceView
           import android.opengl.Matrix
           import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
           import android.view.Gravity
           import android.view.MotionEvent
           import android.view.View
@@ -154,278 +156,319 @@ jobs:
           import kotlin.math.sin
           import kotlin.random.Random
 
-          private data class StructureBlock(
+          private enum class GunMode(
+              val title: String,
+              val damage: Int,
+              val fireIntervalFrames: Int,
+              val shotsPerPull: Int,
+              val maxRange: Float
+          ) {
+              RIFLE("RIFLE AR", 24, 8, 1, 28f),
+              SHOTGUN("ESCOPETA", 17, 24, 4, 15f)
+          }
+
+          private data class WorldBlock(
               val cx: Float,
               val cz: Float,
-              val widthX: Float,
-              val depthZ: Float,
-              val heightY: Float
+              val w: Float,
+              val d: Float,
+              val h: Float,
+              val climbable: Boolean
           )
 
-          private data class RivalUnit(
+          private data class BotFighter(
               var x: Float,
               var z: Float,
-              var health: Int = 100,
-              var stride: Float = 0f,
-              var hitFlash: Int = 0
+              var hp: Int = 100,
+              var phase: Float = 0f,
+              var flashFrames: Int = 0
           )
 
-          private data class SupplyDrop(
+          private data class CrateDrop(
               val x: Float,
               val z: Float,
-              val category: Int // 0 = botiquín, 1 = chaleco/escudo, 2 = munición
+              val kind: Int // 0 = botiquín, 1 = chaleco, 2 = balas
           )
 
-          private data class TracerShot(
+          private data class ShotBeam(
               var x: Float,
               var y: Float,
               var z: Float,
               val vx: Float,
               val vz: Float,
-              var ttl: Int
+              var life: Int
           )
 
-          private class ArenaSimulation {
-              var playerX = 0f
-              var playerZ = 16f
-              var playerY = 0f
-              var velY = 0f
-              var heading = 0f
+          private class BattleEngine {
+              var px = 0f
+              var pz = 16f
+              var py = 0f
+              var vy = 0f
+              var yaw = 0f
 
-              var health = 100
+              var hp = 100
               var armor = 60
-              var ammo = 90
-              var eliminations = 0
+              var ammo = 100
+              var kills = 0
+              var gun = GunMode.RIFLE
 
-              var runningFast = false
-              var triggerHeld = false
-              var matchEnded = false
-              var wonMatch = false
+              var sprint = false
+              var firing = false
+              var gameOver = false
+              var won = false
 
-              var safeZoneRadius = 46f
-              var frameCounter = 0
-              var lastHitMarkerFrames = 0
+              var zoneRadius = 46f
+              var tick = 0
+              var hitFlash = 0
 
-              val structures = listOf(
-                  StructureBlock(-14f, -10f, 8.5f, 7.5f, 5.4f),
-                  StructureBlock(14f, -12f, 9.5f, 7.5f, 6.2f),
-                  StructureBlock(0f, -26f, 11.0f, 8.0f, 6.8f),
-                  StructureBlock(-19f, 12f, 7.0f, 8.0f, 4.8f),
-                  StructureBlock(19f, 11f, 7.5f, 7.5f, 5.2f)
+              val blocks = listOf(
+                  WorldBlock(-14f, -10f, 8.5f, 7.5f, 5.4f, climbable = false),
+                  WorldBlock(14f, -12f, 9.5f, 7.5f, 6.2f, climbable = false),
+                  WorldBlock(0f, -26f, 11.0f, 8.0f, 6.8f, climbable = false),
+                  WorldBlock(-19f, 12f, 7.0f, 8.0f, 4.8f, climbable = false),
+                  WorldBlock(19f, 11f, 7.5f, 7.5f, 5.2f, climbable = false),
+                  WorldBlock(-5f, 5f, 2.2f, 2.2f, 1.3f, climbable = true),
+                  WorldBlock(6f, 4f, 2.2f, 2.2f, 1.3f, climbable = true),
+                  WorldBlock(0f, -8f, 2.4f, 2.4f, 1.4f, climbable = true)
               )
 
-              val rivals = mutableListOf<RivalUnit>()
-              val supplies = mutableListOf<SupplyDrop>()
-              val tracers = mutableListOf<TracerShot>()
+              val bots = mutableListOf<BotFighter>()
+              val drops = mutableListOf<CrateDrop>()
+              val beams = mutableListOf<ShotBeam>()
 
               init {
-                  startNewMatch()
+                  resetMatch()
               }
 
               @Synchronized
-              fun startNewMatch() {
-                  playerX = 0f
-                  playerZ = 16f
-                  playerY = 0f
-                  velY = 0f
-                  heading = 0f
+              fun resetMatch() {
+                  px = 0f
+                  pz = 16f
+                  py = 0f
+                  vy = 0f
+                  yaw = 0f
 
-                  health = 100
+                  hp = 100
                   armor = 60
-                  ammo = 90
-                  eliminations = 0
+                  ammo = 100
+                  kills = 0
+                  gun = GunMode.RIFLE
 
-                  runningFast = false
-                  triggerHeld = false
-                  matchEnded = false
-                  wonMatch = false
-                  safeZoneRadius = 46f
-                  frameCounter = 0
-                  lastHitMarkerFrames = 0
+                  sprint = false
+                  firing = false
+                  gameOver = false
+                  won = false
+                  zoneRadius = 46f
+                  tick = 0
+                  hitFlash = 0
 
-                  rivals.clear()
-                  val enemySpots = listOf(
+                  bots.clear()
+                  listOf(
                       -22f to -19f, 22f to -21f, 0f to -35f,
                       -28f to 4f, 28f to 5f, -11f to -31f,
                       14f to -30f, 23f to 22f
-                  )
-                  for ((ex, ez) in enemySpots) {
-                      rivals.add(RivalUnit(ex, ez, 100, Random.nextFloat() * 6.28f, 0))
+                  ).forEach { (bx, bz) ->
+                      bots.add(BotFighter(bx, bz, 100, Random.nextFloat() * 6.28f, 0))
                   }
 
-                  supplies.clear()
-                  supplies.addAll(
+                  drops.clear()
+                  drops.addAll(
                       listOf(
-                          SupplyDrop(3.5f, 11f, 0),
-                          SupplyDrop(-3.5f, 11f, 1),
-                          SupplyDrop(0f, 4f, 0),
-                          SupplyDrop(-9f, -2f, 2),
-                          SupplyDrop(9f, -5f, 0),
-                          SupplyDrop(2f, -16f, 2)
+                          CrateDrop(3.5f, 11f, 0),
+                          CrateDrop(-3.5f, 11f, 1),
+                          CrateDrop(0f, 3f, 0),
+                          CrateDrop(-9f, -2f, 2),
+                          CrateDrop(9f, -5f, 0),
+                          CrateDrop(2f, -16f, 2)
                       )
                   )
-
-                  tracers.clear()
+                  beams.clear()
               }
 
               @Synchronized
-              fun jump() {
-                  if (!matchEnded && playerY <= 0.01f) {
-                      velY = 0.24f
+              fun triggerJump() {
+                  if (!gameOver && py <= 0.02f) {
+                      vy = 0.25f
                   }
               }
 
               @Synchronized
-              fun tick(forwardInput: Float, strafeInput: Float) {
-                  if (matchEnded) return
-                  frameCounter++
-                  if (lastHitMarkerFrames > 0) lastHitMarkerFrames--
+              fun switchGun() {
+                  gun = if (gun == GunMode.RIFLE) GunMode.SHOTGUN else GunMode.RIFLE
+              }
 
-                  if (safeZoneRadius > 14f && frameCounter % 15 == 0) {
-                      safeZoneRadius -= 0.14f
+              @Synchronized
+              fun step(moveForward: Float, moveRight: Float) {
+                  if (gameOver) return
+                  tick++
+                  if (hitFlash > 0) hitFlash--
+                  if (zoneRadius > 14f && tick % 16 == 0) {
+                      zoneRadius -= 0.13f
                   }
 
-                  // Física vertical (salto / gravedad)
-                  if (playerY > 0f || velY > 0f) {
-                      playerY += velY
-                      velY -= 0.016f
-                      if (playerY <= 0f) {
-                          playerY = 0f
-                          velY = 0f
+                  // Física de salto y soporte sobre cajas bajas
+                  val floorHeight = currentSupportHeight(px, pz)
+                  if (py > floorHeight || vy > 0f) {
+                      py += vy
+                      vy -= 0.017f
+                      if (py <= floorHeight) {
+                          py = floorHeight
+                          vy = 0f
                       }
+                  } else {
+                      py = floorHeight
                   }
 
-                  // Desplazamiento horizontal
-                  val moveSpeed = if (runningFast) 0.20f else 0.13f
-                  val fwdX = -sin(heading)
-                  val fwdZ = -cos(heading)
-                  val rightX = cos(heading)
-                  val rightZ = -sin(heading)
+                  val speed = if (sprint) 0.20f else 0.13f
+                  val fx = -sin(yaw)
+                  val fz = -cos(yaw)
+                  val rx = cos(yaw)
+                  val rz = -sin(yaw)
 
-                  val deltaX = (fwdX * forwardInput + rightX * strafeInput) * moveSpeed
-                  val deltaZ = (fwdZ * forwardInput + rightZ * strafeInput) * moveSpeed
+                  val dx = (fx * moveForward + rx * moveRight) * speed
+                  val dz = (fz * moveForward + rz * moveRight) * speed
 
-                  val candX = (playerX + deltaX).coerceIn(-41f, 41f)
-                  val candZ = (playerZ + deltaZ).coerceIn(-41f, 41f)
-                  if (!hitsStructure(candX, playerZ)) playerX = candX
-                  if (!hitsStructure(playerX, candZ)) playerZ = candZ
+                  val nextX = (px + dx).coerceIn(-41f, 41f)
+                  val nextZ = (pz + dz).coerceIn(-41f, 41f)
+                  if (!blockedAt(nextX, pz, py)) px = nextX
+                  if (!blockedAt(px, nextZ, py)) pz = nextZ
 
-                  // Recolección de suministros
-                  val sIt = supplies.iterator()
-                  while (sIt.hasNext()) {
-                      val item = sIt.next()
-                      if (hypot((item.x - playerX).toDouble(), (item.z - playerZ).toDouble()) < 1.8) {
-                          when (item.category) {
-                              0 -> health = (health + 30).coerceAtMost(100)
+                  // Recoger suministros
+                  val dIt = drops.iterator()
+                  while (dIt.hasNext()) {
+                      val item = dIt.next()
+                      if (hypot((item.x - px).toDouble(), (item.z - pz).toDouble()) < 1.8) {
+                          when (item.kind) {
+                              0 -> hp = (hp + 30).coerceAtMost(100)
                               1 -> armor = (armor + 35).coerceAtMost(100)
                               else -> ammo += 35
                           }
-                          sIt.remove()
+                          dIt.remove()
                       }
                   }
 
-                  // Comportamiento de rivales
-                  for (rival in rivals) {
-                      rival.stride += 0.055f
-                      if (rival.hitFlash > 0) rival.hitFlash--
-
-                      val toPlayerX = playerX - rival.x
-                      val toPlayerZ = playerZ - rival.z
-                      val dist = hypot(toPlayerX.toDouble(), toPlayerZ.toDouble()).toFloat().coerceAtLeast(0.01f)
-
+                  // IA de rivales
+                  for (bot in bots) {
+                      bot.phase += 0.055f
+                      if (bot.flashFrames > 0) bot.flashFrames--
+                      val toX = px - bot.x
+                      val toZ = pz - bot.z
+                      val dist = hypot(toX.toDouble(), toZ.toDouble()).toFloat().coerceAtLeast(0.01f)
                       if (dist in 5.5f..30f) {
-                          val stepX = rival.x + (toPlayerX / dist) * 0.042f
-                          val stepZ = rival.z + (toPlayerZ / dist) * 0.042f
-                          if (!hitsStructure(stepX, rival.z)) rival.x = stepX
-                          if (!hitsStructure(rival.x, stepZ)) rival.z = stepZ
+                          val bx = bot.x + (toX / dist) * 0.042f
+                          val bz = bot.z + (toZ / dist) * 0.042f
+                          if (!blockedAt(bx, bot.z, 0f)) bot.x = bx
+                          if (!blockedAt(bot.x, bz, 0f)) bot.z = bz
                       }
-
-                      if (dist < 21f && frameCounter % 80 == 0) {
-                          inflictPlayerDamage(3)
+                      if (dist < 21f && tick % 82 == 0) {
+                          takeDamage(3)
                       }
                   }
 
                   // Disparo del jugador
-                  if (triggerHeld && ammo > 0 && frameCounter % 9 == 0) {
+                  if (firing && ammo > 0 && tick % gun.fireIntervalFrames == 0) {
                       ammo--
-                      val dirX = -sin(heading)
-                      val dirZ = -cos(heading)
-                      tracers.add(
-                          TracerShot(
-                              x = playerX + dirX * 1.1f,
-                              y = playerY + 1.35f,
-                              z = playerZ + dirZ * 1.1f,
-                              vx = dirX * 1.45f,
-                              vz = dirZ * 1.45f,
-                              ttl = 18
+                      val dirX = -sin(yaw)
+                      val dirZ = -cos(yaw)
+                      repeat(gun.shotsPerPull) {
+                          val jitter = (Random.nextFloat() - 0.5f) * if (gun == GunMode.SHOTGUN) 0.16f else 0.04f
+                          val ang = yaw + jitter
+                          beams.add(
+                              ShotBeam(
+                                  x = px - sin(ang) * 1.1f,
+                                  y = py + 1.35f,
+                                  z = pz - cos(ang) * 1.1f,
+                                  vx = -sin(ang) * 1.45f,
+                                  vz = -cos(ang) * 1.45f,
+                                  life = 16
+                              )
                           )
-                      )
-
-                      val closestRival = rivals.minByOrNull {
-                          hypot((it.x - playerX).toDouble(), (it.z - playerZ).toDouble())
                       }
-                      if (closestRival != null) {
-                          val dx = closestRival.x - playerX
-                          val dz = closestRival.z - playerZ
-                          val forwardProjection = dirX * dx + dirZ * dz
-                          val perpDistance = abs(dirX * dz - dirZ * dx)
-                          val totalDist = hypot(dx.toDouble(), dz.toDouble()).toFloat()
 
-                          if (forwardProjection > 0f && totalDist < 26f && perpDistance < (1.15f + totalDist * 0.14f)) {
-                              closestRival.health -= 25
-                              closestRival.hitFlash = 5
-                              lastHitMarkerFrames = 6
-                              if (closestRival.health <= 0) {
-                                  rivals.remove(closestRival)
-                                  eliminations++
+                      for (bot in bots.toList()) {
+                          val bx = bot.x - px
+                          val bz = bot.z - pz
+                          val along = dirX * bx + dirZ * bz
+                          val lateral = abs(dirX * bz - dirZ * bx)
+                          val d = hypot(bx.toDouble(), bz.toDouble()).toFloat()
+                          val coneWidth = if (gun == GunMode.SHOTGUN) (1.8f + d * 0.24f) else (1.1f + d * 0.13f)
+                          if (along > 0f && d <= gun.maxRange && lateral <= coneWidth) {
+                              bot.hp -= gun.damage
+                              bot.flashFrames = 5
+                              hitFlash = 5
+                              if (bot.hp <= 0) {
+                                  bots.remove(bot)
+                                  kills++
                               }
+                              if (gun == GunMode.RIFLE) break
                           }
                       }
                   }
 
                   // Trazadoras
-                  val tIt = tracers.iterator()
-                  while (tIt.hasNext()) {
-                      val tr = tIt.next()
-                      tr.x += tr.vx
-                      tr.z += tr.vz
-                      tr.ttl--
-                      if (tr.ttl <= 0 || hitsStructure(tr.x, tr.z)) {
-                          tIt.remove()
+                  val bIt = beams.iterator()
+                  while (bIt.hasNext()) {
+                      val bm = bIt.next()
+                      bm.x += bm.vx
+                      bm.z += bm.vz
+                      bm.life--
+                      if (bm.life <= 0 || blockedAt(bm.x, bm.z, bm.y)) {
+                          bIt.remove()
                       }
                   }
 
-                  // Daño por estar fuera de zona segura
-                  if (hypot(playerX.toDouble(), playerZ.toDouble()) > safeZoneRadius && frameCounter % 36 == 0) {
-                      inflictPlayerDamage(4)
+                  // Zona segura
+                  if (hypot(px.toDouble(), pz.toDouble()) > zoneRadius && tick % 36 == 0) {
+                      takeDamage(4)
                   }
 
-                  if (health <= 0 || rivals.isEmpty()) {
-                      matchEnded = true
-                      wonMatch = health > 0 && rivals.isEmpty()
+                  if (hp <= 0 || bots.isEmpty()) {
+                      gameOver = true
+                      won = hp > 0 && bots.isEmpty()
                   }
               }
 
-              private fun inflictPlayerDamage(amount: Int) {
-                  val blocked = minOf(armor, amount)
+              private fun takeDamage(dmg: Int) {
+                  val blocked = minOf(armor, dmg)
                   armor -= blocked
-                  health = (health - (amount - blocked)).coerceAtLeast(0)
+                  hp = (hp - (dmg - blocked)).coerceAtLeast(0)
               }
 
-              private fun hitsStructure(x: Float, z: Float): Boolean {
-                  return structures.any {
-                      val pad = 0.65f
-                      x > it.cx - it.widthX / 2f - pad &&
-                          x < it.cx + it.widthX / 2f + pad &&
-                          z > it.cz - it.depthZ / 2f - pad &&
-                          z < it.cz + it.depthZ / 2f + pad
+              private fun currentSupportHeight(x: Float, z: Float): Float {
+                  var top = 0f
+                  for (b in blocks) {
+                      if (b.climbable &&
+                          abs(x - b.cx) <= b.w / 2f + 0.35f &&
+                          abs(z - b.cz) <= b.d / 2f + 0.35f &&
+                          py >= b.h - 0.25f
+                      ) {
+                          if (b.h > top) top = b.h
+                      }
                   }
+                  return top
+              }
+
+              private fun blockedAt(x: Float, z: Float, feetY: Float): Boolean {
+                  val pad = 0.62f
+                  for (b in blocks) {
+                      if (x + pad > b.cx - b.w / 2f &&
+                          x - pad < b.cx + b.w / 2f &&
+                          z + pad > b.cz - b.d / 2f &&
+                          z - pad < b.cz + b.d / 2f
+                      ) {
+                          if (!(b.climbable && feetY >= b.h - 0.15f)) {
+                              return true
+                          }
+                      }
+                  }
+                  return false
               }
           }
 
           class MainActivity : AppCompatActivity() {
-              private lateinit var glSurface: GLSurfaceView
-              private val simulation = ArenaSimulation()
+              private lateinit var glView: GLSurfaceView
+              private lateinit var hud: BattleHudLayout
+              private val engine = BattleEngine()
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -439,266 +482,266 @@ jobs:
                           View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
 
                   val container = FrameLayout(this)
-                  glSurface = GLSurfaceView(this).apply {
+                  glView = GLSurfaceView(this).apply {
                       setEGLContextClientVersion(2)
-                      setRenderer(IslandGLRenderer(simulation))
+                      setRenderer(RoyaleRenderer(engine))
                       renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
                       preserveEGLContextOnPause = true
                   }
-
-                  val hud = ArenaHudView(this, simulation)
-                  container.addView(glSurface)
+                  hud = BattleHudLayout(this, engine)
+                  container.addView(glView)
                   container.addView(hud)
                   setContentView(container)
               }
 
               override fun onPause() {
                   super.onPause()
-                  glSurface.onPause()
+                  hud.stopLoop()
+                  glView.onPause()
               }
 
               override fun onResume() {
                   super.onResume()
-                  glSurface.onResume()
+                  glView.onResume()
+                  hud.startLoop()
               }
           }
 
-          private class ArenaHudView(
+          private class BattleHudLayout(
               activity: AppCompatActivity,
-              private val sim: ArenaSimulation
+              private val engine: BattleEngine
           ) : FrameLayout(activity) {
 
-              private var movePointerId = -1
-              private var cameraPointerId = -1
+              private val mainHandler = Handler(Looper.getMainLooper())
+              private var loopActive = false
 
-              private var stickOriginX = 150f
-              private var stickOriginY = 0f
-              private var stickThumbX = stickOriginX
-              private var stickThumbY = 0f
-              private val stickMaxRadius = 90f
+              private var stickPid = -1
+              private var lookPid = -1
 
-              private var lastCamX = 0f
-              private var inputForward = 0f
-              private var inputStrafe = 0f
+              private var stickCx = 150f
+              private var stickCy = 0f
+              private var stickKx = stickCx
+              private var stickKy = 0f
+              private val stickRadius = 88f
 
-              private val statsView = TextView(activity).apply {
+              private var prevLookX = 0f
+              private var fwdAxis = 0f
+              private var rightAxis = 0f
+
+              private val hudBox = TextView(activity).apply {
                   setTextColor(Color.WHITE)
-                  textSize = 14.5f
-                  setPadding(24, 16, 24, 14)
+                  textSize = 14f
+                  setPadding(22, 14, 22, 12)
                   setBackgroundColor(0x771E293B.toInt())
               }
 
-              private val btnFire = Button(activity).apply {
-                  text = "DISPARAR"
-                  textSize = 12f
-              }
-              private val btnJump = Button(activity).apply {
-                  text = "SALTAR"
-                  textSize = 11f
-              }
-              private val btnSprint = Button(activity).apply {
-                  text = "CORRER"
-                  textSize = 11f
-              }
-              private val btnRestart = Button(activity).apply {
+              private val fireBtn = Button(activity).apply { text = "DISPARAR"; textSize = 12f }
+              private val jumpBtn = Button(activity).apply { text = "SALTAR"; textSize = 11f }
+              private val gunBtn = Button(activity).apply { text = "ARMA"; textSize = 11f }
+              private val sprintBtn = Button(activity).apply { text = "CORRER"; textSize = 11f }
+              private val retryBtn = Button(activity).apply {
                   text = "JUGAR DE NUEVO"
                   textSize = 13f
                   visibility = View.GONE
               }
 
+              private val frameTicker = object : Runnable {
+                  override fun run() {
+                      if (!loopActive) return
+                      engine.step(fwdAxis, rightAxis)
+                      hudBox.text =
+                          "L.E.B-M ROYALE 3D  v1.3  [${engine.gun.title}]\n" +
+                              "VIDA ${engine.hp}  |  CHALECO ${engine.armor}  |  BALAS ${engine.ammo}\n" +
+                              "RIVALES ${engine.bots.size}  |  BAJAS ${engine.kills}"
+
+                      if (engine.gameOver) {
+                          retryBtn.visibility = View.VISIBLE
+                          retryBtn.text = if (engine.won) "¡VICTORIA! REINTENTAR" else "ELIMINADO • REINTENTAR"
+                      }
+                      invalidate()
+                      mainHandler.postDelayed(this, 16)
+                  }
+              }
+
               init {
                   setWillNotDraw(false)
-                  addView(statsView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START))
-                  addView(btnFire, LayoutParams(148, 70, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 36, 36) })
-                  addView(btnJump, LayoutParams(124, 58, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 198, 40) })
-                  addView(btnSprint, LayoutParams(124, 58, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 198, 112) })
-                  addView(btnRestart, LayoutParams(250, 72, Gravity.CENTER))
+                  addView(hudBox, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START))
+                  addView(fireBtn, LayoutParams(150, 70, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 36, 36) })
+                  addView(jumpBtn, LayoutParams(124, 56, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 200, 38) })
+                  addView(gunBtn, LayoutParams(124, 56, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 200, 106) })
+                  addView(sprintBtn, LayoutParams(124, 56, Gravity.RIGHT or Gravity.BOTTOM).apply { setMargins(0, 0, 36, 118) })
+                  addView(retryBtn, LayoutParams(250, 72, Gravity.CENTER))
 
-                  btnFire.setOnTouchListener { _, ev ->
-                      sim.triggerHeld = ev.action != MotionEvent.ACTION_UP && ev.action != MotionEvent.ACTION_CANCEL
+                  fireBtn.setOnTouchListener { _, ev ->
+                      engine.firing = ev.action != MotionEvent.ACTION_UP && ev.action != MotionEvent.ACTION_CANCEL
                       true
                   }
-                  btnJump.setOnClickListener { sim.jump() }
-                  btnSprint.setOnClickListener {
-                      sim.runningFast = !sim.runningFast
-                      btnSprint.text = if (sim.runningFast) "CORRER: ON" else "CORRER"
+                  jumpBtn.setOnClickListener { engine.triggerJump() }
+                  gunBtn.setOnClickListener { engine.switchGun() }
+                  sprintBtn.setOnClickListener {
+                      engine.sprint = !engine.sprint
+                      sprintBtn.text = if (engine.sprint) "CORRER: ON" else "CORRER"
                   }
-                  btnRestart.setOnClickListener {
-                      sim.startNewMatch()
-                      btnRestart.visibility = View.GONE
+                  retryBtn.setOnClickListener {
+                      engine.resetMatch()
+                      retryBtn.visibility = View.GONE
                   }
+              }
 
-                  post(object : Runnable {
-                      override fun run() {
-                          sim.tick(inputForward, inputStrafe)
-                          statsView.text =
-                              "L.E.B-M ROYALE 3D  v1.2\n" +
-                                  "VIDA ${sim.health}  |  CHALECO ${sim.armor}  |  BALAS ${sim.ammo}\n" +
-                                  "RIVALES ${sim.rivals.size}  |  BAJAS ${sim.eliminations}"
+              fun startLoop() {
+                  if (loopActive) return
+                  loopActive = true
+                  mainHandler.post(frameTicker)
+              }
 
-                          if (sim.matchEnded) {
-                              btnRestart.visibility = View.VISIBLE
-                              btnRestart.text = if (sim.wonMatch) "¡BOOYAH! REINTENTAR" else "ELIMINADO • REINTENTAR"
-                          }
-                          invalidate()
-                          postDelayed(this, 16)
-                      }
-                  })
+              fun stopLoop() {
+                  loopActive = false
+                  mainHandler.removeCallbacks(frameTicker)
               }
 
               override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                   super.onSizeChanged(w, h, oldw, oldh)
-                  stickOriginX = 150f
-                  stickOriginY = (h - 145f).coerceAtLeast(120f)
-                  stickThumbX = stickOriginX
-                  stickThumbY = stickOriginY
+                  stickCx = 150f
+                  stickCy = (h - 145f).coerceAtLeast(120f)
+                  stickKx = stickCx
+                  stickKy = stickCy
               }
 
               override fun onTouchEvent(event: MotionEvent): Boolean {
-                  if (sim.matchEnded) return true
+                  if (engine.gameOver) return true
 
                   when (event.actionMasked) {
                       MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                           val idx = event.actionIndex
                           val pid = event.getPointerId(idx)
-                          val tx = event.getX(idx)
-                          val ty = event.getY(idx)
-
-                          if (tx < width * 0.44f && movePointerId == -1) {
-                              movePointerId = pid
-                              updateStick(tx, ty)
-                          } else if (tx >= width * 0.44f && cameraPointerId == -1) {
-                              cameraPointerId = pid
-                              lastCamX = tx
+                          val x = event.getX(idx)
+                          val y = event.getY(idx)
+                          if (x < width * 0.44f && stickPid == -1) {
+                              stickPid = pid
+                              moveStick(x, y)
+                          } else if (x >= width * 0.44f && lookPid == -1) {
+                              lookPid = pid
+                              prevLookX = x
                           }
                       }
 
                       MotionEvent.ACTION_MOVE -> {
                           for (p in 0 until event.pointerCount) {
                               val pid = event.getPointerId(p)
-                              val tx = event.getX(p)
-                              val ty = event.getY(p)
-                              if (pid == movePointerId) {
-                                  updateStick(tx, ty)
-                              } else if (pid == cameraPointerId) {
-                                  sim.heading -= (tx - lastCamX) * 0.0062f
-                                  lastCamX = tx
+                              val x = event.getX(p)
+                              val y = event.getY(p)
+                              if (pid == stickPid) {
+                                  moveStick(x, y)
+                              } else if (pid == lookPid) {
+                                  engine.yaw -= (x - prevLookX) * 0.0062f
+                                  prevLookX = x
                               }
                           }
                       }
 
                       MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                           val pid = event.getPointerId(event.actionIndex)
-                          if (pid == movePointerId) {
-                              movePointerId = -1
-                              inputForward = 0f
-                              inputStrafe = 0f
-                              stickThumbX = stickOriginX
-                              stickThumbY = stickOriginY
+                          if (pid == stickPid) {
+                              stickPid = -1
+                              fwdAxis = 0f
+                              rightAxis = 0f
+                              stickKx = stickCx
+                              stickKy = stickCy
                           }
-                          if (pid == cameraPointerId) {
-                              cameraPointerId = -1
+                          if (pid == lookPid) {
+                              lookPid = -1
                           }
                       }
                   }
                   return true
               }
 
-              private fun updateStick(tx: Float, ty: Float) {
-                  var dx = tx - stickOriginX
-                  var dy = ty - stickOriginY
+              private fun moveStick(tx: Float, ty: Float) {
+                  var dx = tx - stickCx
+                  var dy = ty - stickCy
                   val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                  if (dist > stickMaxRadius) {
-                      dx *= stickMaxRadius / dist
-                      dy *= stickMaxRadius / dist
+                  if (dist > stickRadius) {
+                      dx *= stickRadius / dist
+                      dy *= stickRadius / dist
                   }
-                  stickThumbX = stickOriginX + dx
-                  stickThumbY = stickOriginY + dy
-                  inputStrafe = (dx / stickMaxRadius).coerceIn(-1f, 1f)
-                  inputForward = (-dy / stickMaxRadius).coerceIn(-1f, 1f)
+                  stickKx = stickCx + dx
+                  stickKy = stickCy + dy
+                  rightAxis = (dx / stickRadius).coerceIn(-1f, 1f)
+                  fwdAxis = (-dy / stickRadius).coerceIn(-1f, 1f)
               }
 
               override fun onDraw(canvas: Canvas) {
                   super.onDraw(canvas)
 
                   // Joystick izquierdo
-                  val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = 0x66FFFFFF.toInt()
-                      style = Paint.Style.STROKE
-                      strokeWidth = 4f
-                  }
-                  canvas.drawCircle(stickOriginX, stickOriginY, stickMaxRadius, ringPaint)
+                  canvas.drawCircle(
+                      stickCx, stickCy, stickRadius,
+                      Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                          color = 0x66FFFFFF.toInt()
+                          style = Paint.Style.STROKE
+                          strokeWidth = 4f
+                      }
+                  )
+                  canvas.drawCircle(
+                      stickKx, stickKy, 35f,
+                      Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xAA38BDF8.toInt() }
+                  )
 
-                  val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = 0xAA38BDF8.toInt()
-                      style = Paint.Style.FILL
-                  }
-                  canvas.drawCircle(stickThumbX, stickThumbY, 36f, thumbPaint)
-
-                  // Mira central
+                  // Mira central con marcador de impacto
                   val midX = width / 2f
                   val midY = height / 2f
-                  val aimColor = if (sim.lastHitMarkerFrames > 0) Color.RED else Color.WHITE
-                  val aimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = aimColor
+                  val crossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      color = if (engine.hitFlash > 0) Color.RED else Color.WHITE
                       strokeWidth = 3.5f
                   }
-                  canvas.drawLine(midX - 16f, midY, midX + 16f, midY, aimPaint)
-                  canvas.drawLine(midX, midY - 16f, midX, midY + 16f, aimPaint)
+                  canvas.drawLine(midX - 16f, midY, midX + 16f, midY, crossPaint)
+                  canvas.drawLine(midX, midY - 16f, midX, midY + 16f, crossPaint)
 
-                  // Minimapa circular arriba a la derecha
-                  val mapRadius = 86f
-                  val mapCx = width - 115f
-                  val mapCy = 108f
-                  canvas.drawCircle(mapCx, mapCy, mapRadius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                      color = 0x990F172A.toInt()
-                  })
-                  val scale = mapRadius / 48f
+                  // Minimapa radar arriba a la derecha
+                  val rMap = 84f
+                  val cxMap = width - 112f
+                  val cyMap = 104f
+                  canvas.drawCircle(cxMap, cyMap, rMap, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x990F172A.toInt() })
+                  val sc = rMap / 48f
                   canvas.drawCircle(
-                      mapCx,
-                      mapCy,
-                      (sim.safeZoneRadius * scale).coerceAtMost(mapRadius),
+                      cxMap, cyMap, (engine.zoneRadius * sc).coerceAtMost(rMap),
                       Paint(Paint.ANTI_ALIAS_FLAG).apply {
                           color = 0xFF38BDF8.toInt()
                           style = Paint.Style.STROKE
                           strokeWidth = 2.5f
                       }
                   )
-                  for (rival in sim.rivals) {
+                  for (bot in engine.bots) {
                       canvas.drawCircle(
-                          mapCx + rival.x * scale,
-                          mapCy + rival.z * scale,
-                          4.5f,
+                          cxMap + bot.x * sc, cyMap + bot.z * sc, 4.5f,
                           Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED }
                       )
                   }
                   canvas.drawCircle(
-                      mapCx + sim.playerX * scale,
-                      mapCy + sim.playerZ * scale,
-                      5.5f,
+                      cxMap + engine.px * sc, cyMap + engine.pz * sc, 5.5f,
                       Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.GREEN }
                   )
               }
           }
 
-          private class IslandGLRenderer(private val sim: ArenaSimulation) : GLSurfaceView.Renderer {
-              private var shaderProg = 0
-              private var attrPos = 0
-              private var attrNorm = 0
-              private var uniMvp = 0
-              private var uniModel = 0
-              private var uniColor = 0
+          private class RoyaleRenderer(private val engine: BattleEngine) : GLSurfaceView.Renderer {
+              private var prog = 0
+              private var aPos = 0
+              private var aNorm = 0
+              private var uMvp = 0
+              private var uModel = 0
+              private var uColor = 0
 
-              private var boxVbo: FloatBuffer? = null
-              private var domeVbo: FloatBuffer? = null
-              private var domeVertexCount = 0
+              private var boxBuf: FloatBuffer? = null
+              private var sphereBuf: FloatBuffer? = null
+              private var sphereVerts = 0
 
-              private val projMat = FloatArray(16)
-              private val viewMat = FloatArray(16)
+              private val pMat = FloatArray(16)
+              private val vMat = FloatArray(16)
               private val vpMat = FloatArray(16)
-              private val modelMat = FloatArray(16)
+              private val mMat = FloatArray(16)
               private val mvpMat = FloatArray(16)
-              private var tickAnim = 0
+              private var animStep = 0
 
               override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
                   GLES20.glClearColor(0.50f, 0.74f, 0.92f, 1f)
@@ -706,219 +749,203 @@ jobs:
                   GLES20.glEnable(GLES20.GL_BLEND)
                   GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
-                  val vertexSrc = """
+                  val vsCode = """
                       uniform mat4 uMVP;
                       uniform mat4 uModel;
                       attribute vec3 aPos;
                       attribute vec3 aNorm;
-                      varying float vShade;
+                      varying float vLight;
                       void main() {
-                          vec3 worldN = normalize(mat3(uModel) * aNorm);
-                          vec3 sunDir = normalize(vec3(-0.4, 0.85, 0.35));
-                          vShade = 0.45 + 0.55 * max(dot(worldN, sunDir), 0.0);
+                          vec3 wn = normalize(mat3(uModel) * aNorm);
+                          vec3 sun = normalize(vec3(-0.4, 0.85, 0.35));
+                          vLight = 0.45 + 0.55 * max(dot(wn, sun), 0.0);
                           gl_Position = uMVP * vec4(aPos, 1.0);
                       }
                   """.trimIndent()
 
-                  val fragmentSrc = """
+                  val fsCode = """
                       precision mediump float;
                       uniform vec4 uColor;
-                      varying float vShade;
+                      varying float vLight;
                       void main() {
-                          gl_FragColor = vec4(uColor.rgb * vShade, uColor.a);
+                          gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);
                       }
                   """.trimIndent()
 
-                  val vs = compileShader(GLES20.GL_VERTEX_SHADER, vertexSrc)
-                  val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSrc)
-                  shaderProg = GLES20.glCreateProgram().also {
+                  val vs = makeShader(GLES20.GL_VERTEX_SHADER, vsCode)
+                  val fs = makeShader(GLES20.GL_FRAGMENT_SHADER, fsCode)
+                  prog = GLES20.glCreateProgram().also {
                       GLES20.glAttachShader(it, vs)
                       GLES20.glAttachShader(it, fs)
                       GLES20.glLinkProgram(it)
                   }
 
-                  attrPos = GLES20.glGetAttribLocation(shaderProg, "aPos")
-                  attrNorm = GLES20.glGetAttribLocation(shaderProg, "aNorm")
-                  uniMvp = GLES20.glGetUniformLocation(shaderProg, "uMVP")
-                  uniModel = GLES20.glGetUniformLocation(shaderProg, "uModel")
-                  uniColor = GLES20.glGetUniformLocation(shaderProg, "uColor")
+                  aPos = GLES20.glGetAttribLocation(prog, "aPos")
+                  aNorm = GLES20.glGetAttribLocation(prog, "aNorm")
+                  uMvp = GLES20.glGetUniformLocation(prog, "uMVP")
+                  uModel = GLES20.glGetUniformLocation(prog, "uModel")
+                  uColor = GLES20.glGetUniformLocation(prog, "uColor")
 
-                  boxVbo = toFloatBuffer(buildUnitBox())
-                  val dome = buildDome(12, 16)
-                  domeVbo = toFloatBuffer(dome.first)
-                  domeVertexCount = dome.second
+                  boxBuf = toBuf(unitBox())
+                  val sp = unitSphere(12, 16)
+                  sphereBuf = toBuf(sp.first)
+                  sphereVerts = sp.second
               }
 
               override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
                   GLES20.glViewport(0, 0, width, height)
-                  val aspect = width.toFloat() / height.coerceAtLeast(1)
-                  Matrix.perspectiveM(projMat, 0, 60f, aspect, 0.25f, 160f)
+                  Matrix.perspectiveM(pMat, 0, 60f, width.toFloat() / height.coerceAtLeast(1), 0.25f, 160f)
               }
 
               override fun onDrawFrame(gl: GL10?) {
                   GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-                  GLES20.glUseProgram(shaderProg)
-                  GLES20.glEnableVertexAttribArray(attrPos)
-                  GLES20.glEnableVertexAttribArray(attrNorm)
+                  GLES20.glUseProgram(prog)
+                  GLES20.glEnableVertexAttribArray(aPos)
+                  GLES20.glEnableVertexAttribArray(aNorm)
 
-                  synchronized(sim) {
-                      val dirX = -sin(sim.heading)
-                      val dirZ = -cos(sim.heading)
-                      val camX = sim.playerX - dirX * 5.0f
-                      val camY = sim.playerY + 3.4f
-                      val camZ = sim.playerZ - dirZ * 5.0f
+                  synchronized(engine) {
+                      val dx = -sin(engine.yaw)
+                      val dz = -cos(engine.yaw)
+                      val camX = engine.px - dx * 5.0f
+                      val camY = engine.py + 3.4f
+                      val camZ = engine.pz - dz * 5.0f
 
                       Matrix.setLookAtM(
-                          viewMat, 0,
+                          vMat, 0,
                           camX, camY, camZ,
-                          sim.playerX + dirX * 5.5f, sim.playerY + 1.2f, sim.playerZ + dirZ * 5.5f,
+                          engine.px + dx * 5.5f, engine.py + 1.2f, engine.pz + dz * 5.5f,
                           0f, 1f, 0f
                       )
-                      Matrix.multiplyMM(vpMat, 0, projMat, 0, viewMat, 0)
+                      Matrix.multiplyMM(vpMat, 0, pMat, 0, vMat, 0)
 
-                      // Terreno y calles principales
-                      renderBox(0f, -0.35f, 0f, 96f, 0.5f, 96f, floatArrayOf(0.22f, 0.44f, 0.21f, 1f))
-                      renderBox(0f, -0.08f, 0f, 4.8f, 0.08f, 92f, floatArrayOf(0.38f, 0.36f, 0.30f, 1f))
-                      renderBox(0f, -0.07f, 0f, 92f, 0.08f, 4.8f, floatArrayOf(0.38f, 0.36f, 0.30f, 1f))
+                      // Suelo y caminos
+                      drawBox(0f, -0.35f, 0f, 96f, 0.5f, 96f, floatArrayOf(0.22f, 0.44f, 0.21f, 1f))
+                      drawBox(0f, -0.08f, 0f, 4.8f, 0.08f, 92f, floatArrayOf(0.38f, 0.36f, 0.30f, 1f))
+                      drawBox(0f, -0.07f, 0f, 92f, 0.08f, 4.8f, floatArrayOf(0.38f, 0.36f, 0.30f, 1f))
 
-                      // Edificios con techo y puerta
-                      for (b in sim.structures) {
-                          renderBox(b.cx, b.heightY / 2f, b.cz, b.widthX, b.heightY, b.depthZ, floatArrayOf(0.50f, 0.52f, 0.54f, 1f))
-                          renderBox(b.cx, b.heightY + 0.16f, b.cz, b.widthX + 0.5f, 0.32f, b.depthZ + 0.5f, floatArrayOf(0.30f, 0.22f, 0.18f, 1f))
-                          renderBox(b.cx, 0.9f, b.cz + b.depthZ / 2f + 0.03f, 1.0f, 1.8f, 0.08f, floatArrayOf(0.20f, 0.14f, 0.10f, 1f))
+                      // Edificios y cajas
+                      for (b in engine.blocks) {
+                          if (b.climbable) {
+                              drawBox(b.cx, 0f, b.cz, b.w, b.h, b.d, floatArrayOf(0.56f, 0.39f, 0.21f, 1f))
+                          } else {
+                              drawBox(b.cx, 0f, b.cz, b.w, b.h, b.d, floatArrayOf(0.50f, 0.52f, 0.54f, 1f))
+                              drawBox(b.cx, b.h, b.cz, b.w + 0.5f, 0.32f, b.d + 0.5f, floatArrayOf(0.30f, 0.22f, 0.18f, 1f))
+                          }
                       }
 
-                      // Árboles en los bordes
+                      // Árboles
                       for (gx in -4..4) {
                           for (gz in -4..4) {
                               val tx = gx * 9.5f + if (gz % 2 == 0) 2.5f else -2.5f
                               val tz = gz * 9.5f - 2.0f
                               if (abs(tx) > 23f || abs(tz) > 23f) {
-                                  renderTree(tx, tz)
+                                  drawBox(tx, 0f, tz, 0.44f, 2.0f, 0.44f, floatArrayOf(0.32f, 0.20f, 0.10f, 1f))
+                                  drawSphere(tx, 2.5f, tz, 1.25f, 1.4f, 1.25f, floatArrayOf(0.14f, 0.40f, 0.17f, 1f))
                               }
                           }
                       }
 
-                      // Suministros en el suelo
-                      for (item in sim.supplies) {
-                          val col = when (item.category) {
+                      // Suministros
+                      for (item in engine.drops) {
+                          val col = when (item.kind) {
                               0 -> floatArrayOf(0.15f, 0.85f, 0.35f, 1f)
                               1 -> floatArrayOf(0.18f, 0.65f, 0.95f, 1f)
                               else -> floatArrayOf(0.95f, 0.72f, 0.15f, 1f)
                           }
-                          renderDome(item.x, 0.5f, item.z, 0.42f, 0.48f, 0.42f, col)
+                          drawSphere(item.x, 0.5f, item.z, 0.42f, 0.48f, 0.42f, col)
                       }
 
-                      // Trazadoras de balas
-                      for (tr in sim.tracers) {
-                          renderBox(tr.x, tr.y, tr.z, 0.18f, 0.18f, 0.65f, floatArrayOf(1.0f, 0.92f, 0.25f, 1f))
+                      // Trazadoras
+                      for (bm in engine.beams) {
+                          drawBox(bm.x, bm.y - 0.09f, bm.z, 0.18f, 0.18f, 0.65f, floatArrayOf(1.0f, 0.92f, 0.25f, 1f))
                       }
 
                       // Rivales y jugador
-                      for (rival in sim.rivals) {
-                          val col = if (rival.hitFlash > 0) {
-                              floatArrayOf(1.0f, 0.9f, 0.2f, 1f)
-                          } else {
-                              floatArrayOf(0.82f, 0.20f, 0.18f, 1f)
-                          }
-                          renderCharacter(rival.x, 0f, rival.z, 0.92f, rival.stride, col)
+                      for (bot in engine.bots) {
+                          val col = if (bot.flashFrames > 0) floatArrayOf(1.0f, 0.9f, 0.2f, 1f) else floatArrayOf(0.82f, 0.20f, 0.18f, 1f)
+                          drawFighter(bot.x, 0f, bot.z, 0.92f, bot.phase, col)
                       }
-
-                      renderCharacter(
-                          sim.playerX,
-                          sim.playerY,
-                          sim.playerZ,
-                          1.0f,
-                          tickAnim * 0.08f,
-                          floatArrayOf(0.14f, 0.48f, 0.88f, 1f)
-                      )
-                      tickAnim++
+                      drawFighter(engine.px, engine.py, engine.pz, 1.0f, animStep * 0.08f, floatArrayOf(0.14f, 0.48f, 0.88f, 1f))
+                      animStep++
                   }
 
-                  GLES20.glDisableVertexAttribArray(attrPos)
-                  GLES20.glDisableVertexAttribArray(attrNorm)
+                  GLES20.glDisableVertexAttribArray(aPos)
+                  GLES20.glDisableVertexAttribArray(aNorm)
               }
 
-              private fun renderTree(x: Float, z: Float) {
-                  renderBox(x, 1.0f, z, 0.44f, 2.0f, 0.44f, floatArrayOf(0.32f, 0.20f, 0.10f, 1f))
-                  renderDome(x, 2.5f, z, 1.25f, 1.4f, 1.25f, floatArrayOf(0.14f, 0.40f, 0.17f, 1f))
+              private fun drawFighter(x: Float, y: Float, z: Float, s: Float, phase: Float, bodyCol: FloatArray) {
+                  val swing = sin(phase) * 0.22f
+                  drawBox(x - 0.20f * s, y, z, 0.22f * s, 0.78f * s, 0.24f * s, floatArrayOf(0.14f, 0.17f, 0.22f, 1f))
+                  drawBox(x + 0.20f * s, y, z, 0.22f * s, 0.78f * s, 0.24f * s, floatArrayOf(0.14f, 0.17f, 0.22f, 1f))
+                  drawBox(x, y + 0.80f * s, z, 0.82f * s, 0.86f * s, 0.42f * s, bodyCol)
+                  drawBox(x - 0.54f * s, y + 0.82f * s + swing, z, 0.22f * s, 0.72f * s, 0.22f * s, bodyCol)
+                  drawBox(x + 0.54f * s, y + 0.82f * s - swing, z, 0.22f * s, 0.72f * s, 0.22f * s, bodyCol)
+                  drawSphere(x, y + 1.92f * s, z, 0.28f * s, 0.30f * s, 0.28f * s, floatArrayOf(0.80f, 0.65f, 0.52f, 1f))
               }
 
-              private fun renderCharacter(x: Float, y: Float, z: Float, scale: Float, phase: Float, bodyColor: FloatArray) {
-                  val armSwing = sin(phase) * 0.22f
-                  renderBox(x - 0.20f * scale, y + 0.42f * scale, z, 0.22f * scale, 0.78f * scale, 0.24f * scale, floatArrayOf(0.14f, 0.17f, 0.22f, 1f))
-                  renderBox(x + 0.20f * scale, y + 0.42f * scale, z, 0.22f * scale, 0.78f * scale, 0.24f * scale, floatArrayOf(0.14f, 0.17f, 0.22f, 1f))
-                  renderBox(x, y + 1.24f * scale, z, 0.82f * scale, 0.86f * scale, 0.42f * scale, bodyColor)
-                  renderBox(x - 0.54f * scale, y + 1.20f * scale + armSwing, z, 0.22f * scale, 0.72f * scale, 0.22f * scale, bodyColor)
-                  renderBox(x + 0.54f * scale, y + 1.20f * scale - armSwing, z, 0.22f * scale, 0.72f * scale, 0.22f * scale, bodyColor)
-                  renderDome(x, y + 1.92f * scale, z, 0.28f * scale, 0.30f * scale, 0.28f * scale, floatArrayOf(0.80f, 0.65f, 0.52f, 1f))
+              private fun drawBox(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, col: FloatArray) {
+                  renderMesh(boxBuf!!, 36, x, y, z, sx, sy, sz, col)
               }
 
-              private fun renderBox(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, color: FloatArray) {
-                  drawMesh(boxVbo!!, 36, x, y, z, sx, sy, sz, color)
+              private fun drawSphere(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, col: FloatArray) {
+                  renderMesh(sphereBuf!!, sphereVerts, x, y, z, sx, sy, sz, col)
               }
 
-              private fun renderDome(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, color: FloatArray) {
-                  drawMesh(domeVbo!!, domeVertexCount, x, y, z, sx, sy, sz, color)
-              }
+              private fun renderMesh(buf: FloatBuffer, count: Int, x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, col: FloatArray) {
+                  Matrix.setIdentityM(mMat, 0)
+                  Matrix.translateM(mMat, 0, x, y, z)
+                  Matrix.scaleM(mMat, 0, sx, sy, sz)
+                  Matrix.multiplyMM(mvpMat, 0, vpMat, 0, mMat, 0)
 
-              private fun drawMesh(buf: FloatBuffer, count: Int, x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, color: FloatArray) {
-                  Matrix.setIdentityM(modelMat, 0)
-                  Matrix.translateM(modelMat, 0, x, y, z)
-                  Matrix.scaleM(modelMat, 0, sx, sy, sz)
-                  Matrix.multiplyMM(mvpMat, 0, vpMat, 0, modelMat, 0)
-
-                  GLES20.glUniformMatrix4fv(uniMvp, 1, false, mvpMat, 0)
-                  GLES20.glUniformMatrix4fv(uniModel, 1, false, modelMat, 0)
-                  GLES20.glUniform4fv(uniColor, 1, color, 0)
+                  GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpMat, 0)
+                  GLES20.glUniformMatrix4fv(uModel, 1, false, mMat, 0)
+                  GLES20.glUniform4fv(uColor, 1, col, 0)
 
                   buf.position(0)
-                  GLES20.glVertexAttribPointer(attrPos, 3, GLES20.GL_FLOAT, false, 24, buf)
+                  GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 24, buf)
                   buf.position(3)
-                  GLES20.glVertexAttribPointer(attrNorm, 3, GLES20.GL_FLOAT, false, 24, buf)
+                  GLES20.glVertexAttribPointer(aNorm, 3, GLES20.GL_FLOAT, false, 24, buf)
                   GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
               }
 
-              private fun compileShader(type: Int, code: String): Int {
+              private fun makeShader(type: Int, src: String): Int {
                   val s = GLES20.glCreateShader(type)
-                  GLES20.glShaderSource(s, code)
+                  GLES20.glShaderSource(s, src)
                   GLES20.glCompileShader(s)
-                  val status = IntArray(1)
-                  GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, status, 0)
-                  if (status[0] == 0) {
-                      throw IllegalStateException(GLES20.glGetShaderInfoLog(s))
-                  }
+                  val ok = IntArray(1)
+                  GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, ok, 0)
+                  if (ok[0] == 0) throw IllegalStateException(GLES20.glGetShaderInfoLog(s))
                   return s
               }
 
-              private fun toFloatBuffer(arr: FloatArray): FloatBuffer =
+              private fun toBuf(arr: FloatArray): FloatBuffer =
                   ByteBuffer.allocateDirect(arr.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
                       put(arr)
                       position(0)
                   }
 
-              private fun buildUnitBox(): FloatArray {
-                  val list = ArrayList<Float>()
-                  fun quad(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray, n: FloatArray) {
+              private fun unitBox(): FloatArray {
+                  val out = ArrayList<Float>()
+                  fun face(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray, n: FloatArray) {
                       for (v in listOf(a, b, c, a, c, d)) {
-                          for (f in v) list.add(f)
-                          for (f in n) list.add(f)
+                          for (f in v) out.add(f)
+                          for (f in n) out.add(f)
                       }
                   }
-                  quad(floatArrayOf(-.5f, 0f, .5f), floatArrayOf(.5f, 0f, .5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(-.5f, 1f, .5f), floatArrayOf(0f, 0f, 1f))
-                  quad(floatArrayOf(.5f, 0f, -.5f), floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(0f, 0f, -1f))
-                  quad(floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(-.5f, 0f, .5f), floatArrayOf(-.5f, 1f, .5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(-1f, 0f, 0f))
-                  quad(floatArrayOf(.5f, 0f, .5f), floatArrayOf(.5f, 0f, -.5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(1f, 0f, 0f))
-                  quad(floatArrayOf(-.5f, 1f, .5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(0f, 1f, 0f))
-                  quad(floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(.5f, 0f, -.5f), floatArrayOf(.5f, 0f, .5f), floatArrayOf(-.5f, 0f, .5f), floatArrayOf(0f, -1f, 0f))
-                  return list.toFloatArray()
+                  face(floatArrayOf(-.5f, 0f, .5f), floatArrayOf(.5f, 0f, .5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(-.5f, 1f, .5f), floatArrayOf(0f, 0f, 1f))
+                  face(floatArrayOf(.5f, 0f, -.5f), floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(0f, 0f, -1f))
+                  face(floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(-.5f, 0f, .5f), floatArrayOf(-.5f, 1f, .5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(-1f, 0f, 0f))
+                  face(floatArrayOf(.5f, 0f, .5f), floatArrayOf(.5f, 0f, -.5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(1f, 0f, 0f))
+                  face(floatArrayOf(-.5f, 1f, .5f), floatArrayOf(.5f, 1f, .5f), floatArrayOf(.5f, 1f, -.5f), floatArrayOf(-.5f, 1f, -.5f), floatArrayOf(0f, 1f, 0f))
+                  face(floatArrayOf(-.5f, 0f, -.5f), floatArrayOf(.5f, 0f, -.5f), floatArrayOf(.5f, 0f, .5f), floatArrayOf(-.5f, 0f, .5f), floatArrayOf(0f, -1f, 0f))
+                  return out.toFloatArray()
               }
 
-              private fun buildDome(rings: Int, sectors: Int): Pair<FloatArray, Int> {
+              private fun unitSphere(rings: Int, sectors: Int): Pair<FloatArray, Int> {
                   val out = ArrayList<Float>()
-                  fun push(pt: FloatArray) {
-                      for (f in pt) out.add(f)
-                      for (f in pt) out.add(f)
+                  fun push(p: FloatArray) {
+                      for (f in p) out.add(f)
+                      for (f in p) out.add(f)
                   }
                   for (r in 0 until rings) {
                       val t0 = Math.PI * r / rings
@@ -931,10 +958,7 @@ jobs:
                               cos(th).toFloat(),
                               (sin(th) * sin(ph)).toFloat()
                           )
-                          val a = pt(t0, p0)
-                          val b = pt(t1, p0)
-                          val c = pt(t1, p1)
-                          val d = pt(t0, p1)
+                          val a = pt(t0, p0); val b = pt(t1, p0); val c = pt(t1, p1); val d = pt(t0, p1)
                           push(a); push(b); push(c); push(a); push(c); push(d)
                       }
                   }
@@ -952,10 +976,10 @@ jobs:
               raw = row * size
               return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!IIBBBBB", size, size, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
           for density, px in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
-              target_dir = f"lebm_br3d_v12/app/src/main/res/mipmap-{density}"
-              os.makedirs(target_dir, exist_ok=True)
-              for icon_name in ("ic_launcher.png", "ic_launcher_round.png"):
-                  with open(os.path.join(target_dir, icon_name), "wb") as fh:
+              folder = f"lebm_royale_v13/app/src/main/res/mipmap-{density}"
+              os.makedirs(folder, exist_ok=True)
+              for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                  with open(os.path.join(folder, name), "wb") as fh:
                       fh.write(make_png(px))
           PY
 
@@ -976,16 +1000,16 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Assemble debug APK
+      - name: Build debug APK
         run: gradle assembleDebug --stacktrace
-        working-directory: lebm_br3d_v12
+        working-directory: lebm_royale_v13
 
-      - name: Package APK artifact
-        run: cp lebm_br3d_v12/app/build/outputs/apk/debug/app-debug.apk L.E.B-M-BR3D-v1.2.apk
+      - name: Copy APK
+        run: cp lebm_royale_v13/app/build/outputs/apk/debug/app-debug.apk L.E.B-M-Royale3D-v1.3.apk
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: L.E.B-M-BR3D-v1.2
-          path: L.E.B-M-BR3D-v1.2.apk
+          name: L.E.B-M-Royale3D-v1.3
+          path: L.E.B-M-Royale3D-v1.3.apk
           if-no-files-found: error
