@@ -1,4 +1,4 @@
-name: Build L.E.B-M BR 2018 APK
+name: Build L.E.B-M BR 3D APK
 
 on: [push, workflow_dispatch]
 
@@ -8,18 +8,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create L.E.B-M BR 2018 Android project
+      - name: Create L.E.B-M BR 3D Android project
         run: |
-          rm -rf br_game_app
-          mkdir -p br_game_app/app/src/main/java/com/leb/br2018 \
-                   br_game_app/app/src/main/res/values \
-                   br_game_app/app/src/main/res/mipmap-mdpi \
-                   br_game_app/app/src/main/res/mipmap-hdpi \
-                   br_game_app/app/src/main/res/mipmap-xhdpi \
-                   br_game_app/app/src/main/res/mipmap-xxhdpi \
-                   br_game_app/app/src/main/res/mipmap-xxxhdpi
+          rm -rf br3d_app
+          mkdir -p br3d_app/app/src/main/java/com/leb/br3d \
+                   br3d_app/app/src/main/res/values \
+                   br3d_app/app/src/main/res/mipmap-mdpi \
+                   br3d_app/app/src/main/res/mipmap-hdpi \
+                   br3d_app/app/src/main/res/mipmap-xhdpi \
+                   br3d_app/app/src/main/res/mipmap-xxhdpi \
+                   br3d_app/app/src/main/res/mipmap-xxxhdpi
 
-          cat << 'EOF' > br_game_app/settings.gradle
+          cat << 'EOF' > br3d_app/settings.gradle
           pluginManagement {
               repositories {
                   google()
@@ -34,34 +34,34 @@ jobs:
                   mavenCentral()
               }
           }
-          rootProject.name = "LEBMBR2018"
+          rootProject.name = "LEBMBR3D"
           include(":app")
           EOF
 
-          cat << 'EOF' > br_game_app/build.gradle
+          cat << 'EOF' > br3d_app/build.gradle
           plugins {
               id 'com.android.application' version '8.5.2' apply false
               id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
           }
           EOF
 
-          cat << 'EOF' > br_game_app/gradle.properties
+          cat << 'EOF' > br3d_app/gradle.properties
           org.gradle.jvmargs=-Xmx2048m
           android.useAndroidX=true
           EOF
 
-          cat << 'EOF' > br_game_app/app/build.gradle
+          cat << 'EOF' > br3d_app/app/build.gradle
           plugins {
               id 'com.android.application'
               id 'org.jetbrains.kotlin.android'
           }
 
           android {
-              namespace 'com.leb.br2018'
+              namespace 'com.leb.br3d'
               compileSdk 34
 
               defaultConfig {
-                  applicationId "com.leb.br2018"
+                  applicationId "com.leb.br3d"
                   minSdk 24
                   targetSdk 34
                   versionCode 1
@@ -94,9 +94,10 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > br_game_app/app/src/main/AndroidManifest.xml
+          cat << 'EOF' > br3d_app/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature android:glEsVersion="0x00020000" android:required="true" />
               <application
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
@@ -116,402 +117,253 @@ jobs:
           </manifest>
           EOF
 
-          cat << 'EOF' > br_game_app/app/src/main/res/values/strings.xml
+          cat << 'EOF' > br3d_app/app/src/main/res/values/strings.xml
           <resources>
-              <string name="app_name">L.E.B-M Survival 2018</string>
+              <string name="app_name">L.E.B-M Survival 3D</string>
           </resources>
           EOF
 
-          cat << 'EOF' > br_game_app/app/src/main/java/com/leb/br2018/MainActivity.kt
-          package com.leb.br2018
+          cat << 'EOF' > br3d_app/app/src/main/java/com/leb/br3d/MainActivity.kt
+          package com.leb.br3d
 
           import android.content.Context
           import android.graphics.Canvas
           import android.graphics.Color
           import android.graphics.Paint
+          import android.graphics.PixelFormat
+          import android.opengl.GLES20
+          import android.opengl.GLSurfaceView
+          import android.opengl.Matrix
           import android.os.Bundle
           import android.view.MotionEvent
-          import android.view.SurfaceHolder
-          import android.view.SurfaceView
+          import android.view.View
+          import android.widget.FrameLayout
           import androidx.appcompat.app.AppCompatActivity
+          import java.nio.ByteBuffer
+          import java.nio.ByteOrder
+          import java.nio.FloatBuffer
+          import javax.microedition.khronos.egl.EGLConfig
+          import javax.microedition.khronos.opengles.GL10
           import kotlin.math.atan2
           import kotlin.math.cos
           import kotlin.math.hypot
           import kotlin.math.sin
           import kotlin.random.Random
 
-          data class BotEnemy(
-              var x: Float,
-              var y: Float,
-              var hp: Int,
-              var cooldown: Int
-          )
-
-          data class LootItem(
-              val x: Float,
-              val y: Float,
-              val isMedkit: Boolean
-          )
-
-          data class Bullet(
-              var x: Float,
-              var y: Float,
-              val vx: Float,
-              val vy: Float,
-              val fromPlayer: Boolean
-          )
-
-          class MainActivity : AppCompatActivity() {
-              private lateinit var view: BattleRoyaleView
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  view = BattleRoyaleView(this)
-                  setContentView(view)
-              }
-
-              override fun onPause() {
-                  super.onPause()
-                  view.pauseLoop()
-              }
-
-              override fun onResume() {
-                  super.onResume()
-                  view.resumeLoop()
-              }
+          enum class WeaponType(val label: String, val damage: Int, val cooldownFrames: Int, val pellets: Int, val spread: Float) {
+              PISTOL("PISTOLA", 25, 14, 1, 0.02f),
+              RIFLE("RIFLE AR", 22, 6, 1, 0.04f),
+              SHOTGUN("ESCOPETA", 18, 28, 5, 0.18f)
           }
 
-          class BattleRoyaleView(context: Context) : SurfaceView(context), SurfaceHolder.Callback, Runnable {
-              private var thread: Thread? = null
-              @Volatile private var running = false
+          data class BoxObstacle(val x: Float, val z: Float, val halfW: Float, val halfD: Float, val height: Float, val color: FloatArray)
+          data class Enemy3D(var x: Float, var z: Float, var hp: Int, var yaw: Float, var shootTimer: Int)
+          data class Loot3D(val x: Float, val z: Float, val type: Int) // 0=Medkit, 1=Rifle, 2=Shotgun, 3=Ammo
+          data class Projectile3D(var x: Float, var y: Float, var z: Float, val vx: Float, val vz: Float, val damage: Int, val fromPlayer: Boolean, var life: Int)
 
-              private var w = 0
-              private var h = 0
+          class GameWorld {
+              var playerX = 0f
+              var playerZ = 0f
+              var playerYaw = 0f // radianes
+              var playerPitch = -0.15f
+              var hp = 100
+              var shield = 50
+              var kills = 0
+              var ammo = 60
+              var weapon = WeaponType.PISTOL
+              var fireCooldown = 0
+              var isSprinting = false
+              var thirdPerson = true
 
-              private var playerX = 0f
-              private var playerY = 0f
-              private var aimAngle = 0f
-              private var hp = 100
-              private var kills = 0
-              private var matchOver = false
-              private var victory = false
-              private var fireCooldown = 0
+              var zoneRadius = 55f
+              var zoneTick = 0
+              var matchOver = false
+              var victory = false
 
-              private var zoneRadius = 900f
-              private var zoneCenterX = 0f
-              private var zoneCenterY = 0f
-              private var zoneDamageTick = 0
-
-              private var joyPointerId = -1
-              private val joyBaseX = 210f
-              private var joyBaseY = 0f
-              private var joyKnobX = 210f
-              private var joyKnobY = 0f
-              private val joyMaxRadius = 110f
-
-              private var fireBtnX = 0f
-              private var fireBtnY = 0f
-              private val fireBtnRadius = 95f
-
-              private val bots = mutableListOf<BotEnemy>()
-              private val loots = mutableListOf<LootItem>()
-              private val bullets = mutableListOf<Bullet>()
-
-              private val groundPaint = Paint().apply { color = Color.parseColor("#14261A") }
-              private val zonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.parseColor("#38BDF8")
-                  style = Paint.Style.STROKE
-                  strokeWidth = 6f
-              }
-              private val playerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#38BDF8") }
-              private val botPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EF4444") }
-              private val medPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#22C55E") }
-              private val ammoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F59E0B") }
-              private val bulletPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FEF08A") }
-              private val joyBasePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.parseColor("#33FFFFFF")
-                  style = Paint.Style.FILL
-              }
-              private val joyKnobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.parseColor("#8838BDF8")
-              }
-              private val firePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.parseColor("#AAEF4444")
-              }
-              private val hudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.WHITE
-                  textSize = 36f
-              }
-              private val endPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.WHITE
-                  textSize = 64f
-                  textAlign = Paint.Align.CENTER
-              }
-              private val subEndPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                  color = Color.parseColor("#CBD5E1")
-                  textSize = 34f
-                  textAlign = Paint.Align.CENTER
-              }
+              val obstacles = mutableListOf<BoxObstacle>()
+              val enemies = mutableListOf<Enemy3D>()
+              val loots = mutableListOf<Loot3D>()
+              val projectiles = mutableListOf<Projectile3D>()
 
               init {
-                  holder.addCallback(this)
+                  reset()
               }
 
-              override fun surfaceCreated(holder: SurfaceHolder) {
-                  w = width
-                  h = height
-                  setupControls()
-                  resetMatch()
-                  resumeLoop()
-              }
-
-              override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                  w = width
-                  h = height
-                  setupControls()
-              }
-
-              override fun surfaceDestroyed(holder: SurfaceHolder) {
-                  pauseLoop()
-              }
-
-              private fun setupControls() {
-                  joyBaseY = (h - 210f).coerceAtLeast(180f)
-                  joyKnobX = joyBaseX
-                  joyKnobY = joyBaseY
-                  fireBtnX = (w - 200f).coerceAtLeast(240f)
-                  fireBtnY = (h - 210f).coerceAtLeast(180f)
-              }
-
-              fun resumeLoop() {
-                  if (running) return
-                  running = true
-                  thread = Thread(this).also { it.start() }
-              }
-
-              fun pauseLoop() {
-                  running = false
-                  try {
-                      thread?.join(500)
-                  } catch (_: InterruptedException) { }
-              }
-
-              private fun resetMatch() {
+              @Synchronized
+              fun reset() {
+                  playerX = 0f
+                  playerZ = 18f
+                  playerYaw = 0f
+                  playerPitch = -0.12f
                   hp = 100
+                  shield = 50
                   kills = 0
+                  ammo = 60
+                  weapon = WeaponType.PISTOL
+                  fireCooldown = 0
+                  zoneRadius = 58f
+                  zoneTick = 0
                   matchOver = false
                   victory = false
-                  fireCooldown = 0
-                  zoneCenterX = w / 2f
-                  zoneCenterY = h / 2f
-                  zoneRadius = (minOf(w, h) * 0.46f).coerceAtLeast(280f)
 
-                  playerX = zoneCenterX - 140f
-                  playerY = zoneCenterY
-
-                  bots.clear()
+                  obstacles.clear()
+                  enemies.clear()
                   loots.clear()
-                  bullets.clear()
+                  projectiles.clear()
 
-                  for (i in 0 until 7) {
-                      val angle = (i * 2.0 * Math.PI / 7.0).toFloat()
-                      val bx = (zoneCenterX + cos(angle) * (zoneRadius * 0.65f)).coerceIn(80f, (w - 80f).coerceAtLeast(120f))
-                      val by = (zoneCenterY + sin(angle) * (zoneRadius * 0.65f)).coerceIn(80f, (h - 80f).coerceAtLeast(120f))
-                      bots.add(BotEnemy(bx, by, 60, Random.nextInt(40, 90)))
-                  }
+                  // Edificios y coberturas 3D
+                  val buildingColor = floatArrayOf(0.32f, 0.36f, 0.42f, 1f)
+                  val crateColor = floatArrayOf(0.55f, 0.38f, 0.20f, 1f)
+                  val wallColor = floatArrayOf(0.25f, 0.30f, 0.28f, 1f)
 
-                  for (i in 0 until 6) {
-                      val lx = Random.nextFloat() * (w - 160f).coerceAtLeast(120f) + 80f
-                      val ly = Random.nextFloat() * (h - 160f).coerceAtLeast(120f) + 80f
-                      loots.add(LootItem(lx, ly, isMedkit = (i % 2 == 0)))
-                  }
-              }
+                  obstacles.add(BoxObstacle(-12f, -8f, 3.5f, 3.5f, 5.5f, buildingColor))
+                  obstacles.add(BoxObstacle(14f, -12f, 4.0f, 3.0f, 6.0f, buildingColor))
+                  obstacles.add(BoxObstacle(0f, -24f, 5.0f, 3.5f, 6.5f, buildingColor))
+                  obstacles.add(BoxObstacle(-18f, 12f, 3.0f, 4.0f, 5.0f, buildingColor))
+                  obstacles.add(BoxObstacle(18f, 10f, 3.5f, 3.5f, 5.0f, buildingColor))
 
-              override fun onTouchEvent(event: MotionEvent): Boolean {
-                  if (matchOver) {
-                      if (event.action == MotionEvent.ACTION_DOWN) {
-                          resetMatch()
-                      }
-                      return true
-                  }
-
-                  val actionMasked = event.actionMasked
-                  val idx = event.actionIndex
-                  val x = event.getX(idx)
-                  val y = event.getY(idx)
-                  val id = event.getPointerId(idx)
-
-                  when (actionMasked) {
-                      MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                          if (hypot((x - fireBtnX).toDouble(), (y - fireBtnY).toDouble()) <= fireBtnRadius * 1.25f) {
-                              tryFirePlayer()
-                          } else if (joyPointerId == -1 && x < w * 0.55f) {
-                              joyPointerId = id
-                              updateJoystick(x, y)
-                          } else {
-                              aimAngle = atan2((y - playerY).toDouble(), (x - playerX).toDouble()).toFloat()
-                          }
-                      }
-                      MotionEvent.ACTION_MOVE -> {
-                          for (p in 0 until event.pointerCount) {
-                              val pid = event.getPointerId(p)
-                              val px = event.getX(p)
-                              val py = event.getY(p)
-                              if (pid == joyPointerId) {
-                                  updateJoystick(px, py)
-                              } else if (px >= w * 0.5f && hypot((px - fireBtnX).toDouble(), (py - fireBtnY).toDouble()) > fireBtnRadius * 1.3f) {
-                                  aimAngle = atan2((py - playerY).toDouble(), (px - playerX).toDouble()).toFloat()
-                              }
-                          }
-                      }
-                      MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                          if (id == joyPointerId) {
-                              joyPointerId = -1
-                              joyKnobX = joyBaseX
-                              joyKnobY = joyBaseY
-                          }
-                      }
-                  }
-                  return true
-              }
-
-              private fun updateJoystick(tx: Float, ty: Float) {
-                  val dx = tx - joyBaseX
-                  val dy = ty - joyBaseY
-                  val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                  if (dist <= joyMaxRadius) {
-                      joyKnobX = tx
-                      joyKnobY = ty
-                  } else if (dist > 0f) {
-                      joyKnobX = joyBaseX + dx / dist * joyMaxRadius
-                      joyKnobY = joyBaseY + dy / dist * joyMaxRadius
-                  }
-              }
-
-              private fun tryFirePlayer() {
-                  if (fireCooldown > 0) return
-                  fireCooldown = 12
-                  val speed = 22f
-                  bullets.add(
-                      Bullet(
-                          playerX + cos(aimAngle) * 32f,
-                          playerY + sin(aimAngle) * 32f,
-                          cos(aimAngle) * speed,
-                          sin(aimAngle) * speed,
-                          fromPlayer = true
-                      )
+                  // Cajas de cobertura
+                  val crateCoords = listOf(
+                      -5f to 4f, 6f to 5f, -4f to -14f, 7f to -2f, -15f to 0f, 12f to 18f, 0f to 8f
                   )
-              }
-
-              override fun run() {
-                  while (running) {
-                      if (!holder.surface.isValid) continue
-                      update()
-                      drawFrame()
-                      try {
-                          Thread.sleep(16)
-                      } catch (_: InterruptedException) { }
+                  for ((cx, cz) in crateCoords) {
+                      obstacles.add(BoxObstacle(cx, cz, 1.3f, 1.3f, 2.0f, crateColor))
                   }
+
+                  // Muros perimetrales
+                  obstacles.add(BoxObstacle(0f, -45f, 45f, 1f, 4f, wallColor))
+                  obstacles.add(BoxObstacle(0f, 45f, 45f, 1f, 4f, wallColor))
+                  obstacles.add(BoxObstacle(-45f, 0f, 1f, 45f, 4f, wallColor))
+                  obstacles.add(BoxObstacle(45f, 0f, 1f, 45f, 4f, wallColor))
+
+                  // Enemigos IA
+                  val spawnPts = listOf(
+                      -22f to -20f, 22f to -22f, 0f to -34f, -28f to 5f, 27f to 4f, -10f to -30f, 15f to -28f, 24f to 22f
+                  )
+                  for ((ex, ez) in spawnPts) {
+                      enemies.add(Enemy3D(ex, ez, 80, Random.nextFloat() * 6.28f, Random.nextInt(30, 80)))
+                  }
+
+                  // Botín 3D
+                  loots.add(Loot3D(3f, 10f, 1))   // Rifle AR
+                  loots.add(Loot3D(-4f, 10f, 2))  // Escopeta
+                  loots.add(Loot3D(0f, 3f, 0))    // Botiquín
+                  loots.add(Loot3D(-10f, -2f, 3)) // Munición
+                  loots.add(Loot3D(10f, -5f, 0))  // Botiquín
+                  loots.add(Loot3D(2f, -17f, 3))  // Munición
+                  loots.add(Loot3D(-14f, 16f, 0)) // Botiquín
               }
 
-              private fun update() {
-                  if (matchOver || w <= 0 || h <= 0) return
+              @Synchronized
+              fun step(moveForward: Float, moveRight: Float) {
+                  if (matchOver) return
 
                   if (fireCooldown > 0) fireCooldown--
+                  if (zoneRadius > 14f) zoneRadius -= 0.015f
 
-                  // Cierre progresivo de zona segura
-                  if (zoneRadius > 130f) {
-                      zoneRadius -= 0.14f
-                  }
+                  // Movimiento relativo a la cámara
+                  val speed = if (isSprinting) 0.34f else 0.22f
+                  val sinY = sin(playerYaw)
+                  val cosY = cos(playerYaw)
+                  val dx = (-sinY * moveForward + cosY * moveRight) * speed
+                  val dz = (-cosY * moveForward - sinY * moveRight) * speed
 
-                  // Movimiento del jugador con joystick
-                  val jdx = (joyKnobX - joyBaseX) / joyMaxRadius
-                  val jdy = (joyKnobY - joyBaseY) / joyMaxRadius
-                  val moveMag = hypot(jdx.toDouble(), jdy.toDouble()).toFloat()
-                  if (moveMag > 0.12f) {
-                      val speed = 6.5f
-                      playerX = (playerX + jdx * speed).coerceIn(40f, (w - 40f).coerceAtLeast(80f))
-                      playerY = (playerY + jdy * speed).coerceIn(40f, (h - 40f).coerceAtLeast(80f))
-                      if (joyPointerId != -1) {
-                          aimAngle = atan2(jdy.toDouble(), jdx.toDouble()).toFloat()
+                  val nextX = (playerX + dx).coerceIn(-42f, 42f)
+                  val nextZ = (playerZ + dz).coerceIn(-42f, 42f)
+                  if (!collidesWithObstacle(nextX, playerZ, 0.7f)) playerX = nextX
+                  if (!collidesWithObstacle(playerX, nextZ, 0.7f)) playerZ = nextZ
+
+                  // Daño de zona
+                  if (hypot(playerX.toDouble(), playerZ.toDouble()) > zoneRadius) {
+                      zoneTick++
+                      if (zoneTick >= 35) {
+                          zoneTick = 0
+                          applyDamageToPlayer(4)
                       }
                   }
 
-                  // Daño fuera de zona segura
-                  val distFromZone = hypot((playerX - zoneCenterX).toDouble(), (playerY - zoneCenterY).toDouble()).toFloat()
-                  if (distFromZone > zoneRadius) {
-                      zoneDamageTick++
-                      if (zoneDamageTick >= 25) {
-                          zoneDamageTick = 0
-                          hp -= 4
-                      }
-                  }
-
-                  // Recoger botín
-                  val lootIt = loots.iterator()
-                  while (lootIt.hasNext()) {
-                      val item = lootIt.next()
-                      if (hypot((item.x - playerX).toDouble(), (item.y - playerY).toDouble()) <= 52f) {
-                          if (item.isMedkit) {
-                              hp = (hp + 30).coerceAtMost(100)
-                          } else {
-                              fireCooldown = 0
+                  // Recoger loot
+                  val lIt = loots.iterator()
+                  while (lIt.hasNext()) {
+                      val item = lIt.next()
+                      if (hypot((item.x - playerX).toDouble(), (item.z - playerZ).toDouble()) < 1.6f) {
+                          when (item.type) {
+                              0 -> hp = (hp + 35).coerceAtMost(100)
+                              1 -> { weapon = WeaponType.RIFLE; ammo += 45 }
+                              2 -> { weapon = WeaponType.SHOTGUN; ammo += 24 }
+                              3 -> ammo += 40
                           }
-                          lootIt.remove()
+                          lIt.remove()
                       }
                   }
 
-                  // Actualizar bots
-                  for (bot in bots) {
-                      val dx = playerX - bot.x
-                      val dy = playerY - bot.y
-                      val d = hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(1f)
-                      if (d > 170f) {
-                          bot.x = (bot.x + dx / d * 2.3f).coerceIn(40f, (w - 40f).coerceAtLeast(80f))
-                          bot.y = (bot.y + dy / d * 2.3f).coerceIn(40f, (h - 40f).coerceAtLeast(80f))
+                  // IA de enemigos
+                  for (e in enemies) {
+                      val ex = playerX - e.x
+                      val ez = playerZ - e.z
+                      val dist = hypot(ex.toDouble(), ez.toDouble()).toFloat().coerceAtLeast(0.1f)
+                      e.yaw = atan2(-ex.toDouble(), -ez.toDouble()).toFloat()
+
+                      if (dist > 6.5f && dist < 38f) {
+                          val stepX = e.x + (ex / dist) * 0.09f
+                          val stepZ = e.z + (ez / dist) * 0.09f
+                          if (!collidesWithObstacle(stepX, e.z, 0.7f)) e.x = stepX
+                          if (!collidesWithObstacle(e.x, stepZ, 0.7f)) e.z = stepZ
                       }
-                      bot.cooldown--
-                      if (bot.cooldown <= 0 && d < 620f) {
-                          bot.cooldown = Random.nextInt(55, 95)
-                          val ang = atan2(dy.toDouble(), dx.toDouble()).toFloat()
-                          bullets.add(Bullet(bot.x, bot.y, cos(ang) * 11f, sin(ang) * 11f, fromPlayer = false))
+
+                      e.shootTimer--
+                      if (e.shootTimer <= 0 && dist < 30f) {
+                          e.shootTimer = Random.nextInt(55, 100)
+                          val spread = (Random.nextFloat() - 0.5f) * 0.14f
+                          val ang = e.yaw + spread
+                          projectiles.add(
+                              Projectile3D(
+                                  e.x - sin(ang) * 0.9f,
+                                  1.2f,
+                                  e.z - cos(ang) * 0.9f,
+                                  -sin(ang) * 0.85f,
+                                  -cos(ang) * 0.85f,
+                                  10,
+                                  fromPlayer = false,
+                                  life = 55
+                              )
+                          )
                       }
                   }
 
-                  // Actualizar balas
-                  val bIt = bullets.iterator()
-                  while (bIt.hasNext()) {
-                      val b = bIt.next()
-                      b.x += b.vx
-                      b.y += b.vy
+                  // Proyectiles
+                  val pIt = projectiles.iterator()
+                  while (pIt.hasNext()) {
+                      val p = pIt.next()
+                      p.x += p.vx
+                      p.z += p.vz
+                      p.life--
 
-                      if (b.x < -30f || b.x > w + 30f || b.y < -30f || b.y > h + 30f) {
-                          bIt.remove()
+                      if (p.life <= 0 || collidesWithObstacle(p.x, p.z, 0.2f)) {
+                          pIt.remove()
                           continue
                       }
 
-                      if (b.fromPlayer) {
-                          var hitBot = false
-                          val botIt = bots.iterator()
-                          while (botIt.hasNext()) {
-                              val bot = botIt.next()
-                              if (hypot((b.x - bot.x).toDouble(), (b.y - bot.y).toDouble()) <= 34f) {
-                                  bot.hp -= 25
-                                  hitBot = true
-                                  if (bot.hp <= 0) {
-                                      botIt.remove()
+                      if (p.fromPlayer) {
+                          var hit = false
+                          val eIt = enemies.iterator()
+                          while (eIt.hasNext()) {
+                              val e = eIt.next()
+                              if (hypot((p.x - e.x).toDouble(), (p.z - e.z).toDouble()) < 0.95f) {
+                                  e.hp -= p.damage
+                                  hit = true
+                                  if (e.hp <= 0) {
+                                      eIt.remove()
                                       kills++
                                   }
                                   break
                               }
                           }
-                          if (hitBot) {
-                              bIt.remove()
-                          }
+                          if (hit) pIt.remove()
                       } else {
-                          if (hypot((b.x - playerX).toDouble(), (b.y - playerY).toDouble()) <= 30f) {
-                              hp -= 12
-                              bIt.remove()
+                          if (hypot((p.x - playerX).toDouble(), (p.z - playerZ).toDouble()) < 0.85f) {
+                              applyDamageToPlayer(p.damage)
+                              pIt.remove()
                           }
                       }
                   }
@@ -520,56 +372,501 @@ jobs:
                       hp = 0
                       matchOver = true
                       victory = false
-                  } else if (bots.isEmpty()) {
+                  } else if (enemies.isEmpty()) {
                       matchOver = true
                       victory = true
                   }
               }
 
-              private fun drawFrame() {
-                  val canvas: Canvas = holder.lockCanvas() ?: return
-                  try {
-                      canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), groundPaint)
-                      canvas.drawCircle(zoneCenterX, zoneCenterY, zoneRadius, zonePaint)
+              private fun applyDamageToPlayer(dmg: Int) {
+                  if (shield > 0) {
+                      val absorbed = minOf(shield, dmg)
+                      shield -= absorbed
+                      hp -= (dmg - absorbed)
+                  } else {
+                      hp -= dmg
+                  }
+              }
 
-                      for (item in loots) {
-                          canvas.drawCircle(item.x, item.y, 18f, if (item.isMedkit) medPaint else ammoPaint)
-                      }
+              @Synchronized
+              fun firePlayerWeapon() {
+                  if (matchOver || fireCooldown > 0 || ammo <= 0) return
+                  fireCooldown = weapon.cooldownFrames
+                  ammo = (ammo - 1).coerceAtLeast(0)
 
-                      for (b in bullets) {
-                          canvas.drawCircle(b.x, b.y, 8f, bulletPaint)
-                      }
-
-                      for (bot in bots) {
-                          canvas.drawCircle(bot.x, bot.y, 26f, botPaint)
-                      }
-
-                      canvas.drawCircle(playerX, playerY, 28f, playerPaint)
-                      canvas.drawLine(
-                          playerX,
-                          playerY,
-                          playerX + cos(aimAngle) * 44f,
-                          playerY + sin(aimAngle) * 44f,
-                          playerPaint
+                  repeat(weapon.pellets) {
+                      val spread = (Random.nextFloat() - 0.5f) * weapon.spread
+                      val ang = playerYaw + spread
+                      projectiles.add(
+                          Projectile3D(
+                              playerX - sin(ang) * 0.9f,
+                              1.25f,
+                              playerZ - cos(ang) * 0.9f,
+                              -sin(ang) * 1.35f,
+                              -cos(ang) * 1.35f,
+                              weapon.damage,
+                              fromPlayer = true,
+                              life = 55
+                          )
                       )
+                  }
+              }
 
-                      // Controles táctiles
-                      canvas.drawCircle(joyBaseX, joyBaseY, joyMaxRadius, joyBasePaint)
-                      canvas.drawCircle(joyKnobX, joyKnobY, 42f, joyKnobPaint)
-                      canvas.drawCircle(fireBtnX, fireBtnY, fireBtnRadius, firePaint)
-                      canvas.drawText("DISPARAR", fireBtnX - 74f, fireBtnY + 12f, hudPaint)
+              @Synchronized
+              fun cycleWeapon() {
+                  weapon = when (weapon) {
+                      WeaponType.PISTOL -> WeaponType.RIFLE
+                      WeaponType.RIFLE -> WeaponType.SHOTGUN
+                      WeaponType.SHOTGUN -> WeaponType.PISTOL
+                  }
+              }
 
-                      // HUD superior
-                      val alive = bots.size + (if (hp > 0) 1 else 0)
-                      canvas.drawText("HP: $hp   Vivos: $alive   Bajas: $kills", 36f, 64f, hudPaint)
-
-                      if (matchOver) {
-                          val title = if (victory) "¡BOOYAH / VICTORIA!" else "ELIMINADO"
-                          canvas.drawText(title, w / 2f, h / 2f - 20f, endPaint)
-                          canvas.drawText("Bajas: $kills — Toca para jugar otra vez", w / 2f, h / 2f + 45f, subEndPaint)
+              private fun collidesWithObstacle(x: Float, z: Float, radius: Float): Boolean {
+                  for (o in obstacles) {
+                      if (x + radius > o.x - o.halfW && x - radius < o.x + o.halfW &&
+                          z + radius > o.z - o.halfD && z - radius < o.z + o.halfD) {
+                          return true
                       }
-                  } finally {
-                      holder.unlockCanvasAndPost(canvas)
+                  }
+                  return false
+              }
+          }
+
+          class MainActivity : AppCompatActivity() {
+              private lateinit var glView: GLSurfaceView
+              private val world = GameWorld()
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val root = FrameLayout(this)
+
+                  glView = GLSurfaceView(this).apply {
+                      setEGLContextClientVersion(2)
+                      setRenderer(World3DRenderer(world))
+                      renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                  }
+
+                  val hudOverlay = HudOverlayView(this, world)
+                  root.addView(glView)
+                  root.addView(hudOverlay)
+                  setContentView(root)
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  glView.onPause()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  glView.onResume()
+              }
+          }
+
+          class World3DRenderer(private val world: GameWorld) : GLSurfaceView.Renderer {
+              private var program = 0
+              private var posHandle = 0
+              private var mvpHandle = 0
+              private var colorHandle = 0
+
+              private val projMatrix = FloatArray(16)
+              private val viewMatrix = FloatArray(16)
+              private val vpMatrix = FloatArray(16)
+              private val modelMatrix = FloatArray(16)
+              private val mvpMatrix = FloatArray(16)
+
+              private lateinit var cubeBuffer: FloatBuffer
+
+              private val cubeCoords = floatArrayOf(
+                  // Frente
+                  -0.5f, 0f, 0.5f,  0.5f, 0f, 0.5f,  0.5f, 1f, 0.5f,
+                  -0.5f, 0f, 0.5f,  0.5f, 1f, 0.5f, -0.5f, 1f, 0.5f,
+                  // Atrás
+                  0.5f, 0f, -0.5f, -0.5f, 0f, -0.5f, -0.5f, 1f, -0.5f,
+                  0.5f, 0f, -0.5f, -0.5f, 1f, -0.5f,  0.5f, 1f, -0.5f,
+                  // Izquierda
+                  -0.5f, 0f, -0.5f, -0.5f, 0f, 0.5f, -0.5f, 1f, 0.5f,
+                  -0.5f, 0f, -0.5f, -0.5f, 1f, 0.5f, -0.5f, 1f, -0.5f,
+                  // Derecha
+                  0.5f, 0f, 0.5f,  0.5f, 0f, -0.5f,  0.5f, 1f, -0.5f,
+                  0.5f, 0f, 0.5f,  0.5f, 1f, -0.5f,  0.5f, 1f, 0.5f,
+                  // Arriba
+                  -0.5f, 1f, 0.5f,  0.5f, 1f, 0.5f,  0.5f, 1f, -0.5f,
+                  -0.5f, 1f, 0.5f,  0.5f, 1f, -0.5f, -0.5f, 1f, -0.5f
+              )
+
+              override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+                  GLES20.glClearColor(0.45f, 0.68f, 0.90f, 1f)
+                  GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+
+                  cubeBuffer = ByteBuffer.allocateDirect(cubeCoords.size * 4)
+                      .order(ByteOrder.nativeOrder())
+                      .asFloatBuffer()
+                      .apply {
+                          put(cubeCoords)
+                          position(0)
+                      }
+
+                  val vs = """
+                      uniform mat4 uMVPMatrix;
+                      attribute vec4 vPosition;
+                      void main() {
+                          gl_Position = uMVPMatrix * vPosition;
+                      }
+                  """.trimIndent()
+
+                  val fs = """
+                      precision mediump float;
+                      uniform vec4 vColor;
+                      void main() {
+                          gl_FragColor = vColor;
+                      }
+                  """.trimIndent()
+
+                  val vShader = loadShader(GLES20.GL_VERTEX_SHADER, vs)
+                  val fShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fs)
+                  program = GLES20.glCreateProgram().also {
+                      GLES20.glAttachShader(it, vShader)
+                      GLES20.glAttachShader(it, fShader)
+                      GLES20.glLinkProgram(it)
+                  }
+                  posHandle = GLES20.glGetAttribLocation(program, "vPosition")
+                  mvpHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix")
+                  colorHandle = GLES20.glGetUniformLocation(program, "vColor")
+              }
+
+              override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+                  GLES20.glViewport(0, 0, width, height)
+                  val ratio = width.toFloat() / height.coerceAtLeast(1)
+                  Matrix.perspectiveM(projMatrix, 0, 62f, ratio, 0.3f, 160f)
+              }
+
+              override fun onDrawFrame(gl: GL10?) {
+                  GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+                  GLES20.glUseProgram(program)
+                  GLES20.glEnableVertexAttribArray(posHandle)
+                  GLES20.glVertexAttribPointer(posHandle, 3, GLES20.GL_FLOAT, false, 12, cubeBuffer)
+
+                  synchronized(world) {
+                      val lookDirX = -sin(world.playerYaw)
+                      val lookDirZ = -cos(world.playerYaw)
+
+                      val camX: Float
+                      val camY: Float
+                      val camZ: Float
+                      val targetX: Float
+                      val targetY: Float
+                      val targetZ: Float
+
+                      if (world.thirdPerson) {
+                          camX = world.playerX - lookDirX * 4.2f
+                          camY = 2.7f
+                          camZ = world.playerZ - lookDirZ * 4.2f
+                          targetX = world.playerX + lookDirX * 8f
+                          targetY = 1.4f + world.playerPitch * 4f
+                          targetZ = world.playerZ + lookDirZ * 8f
+                      } else {
+                          camX = world.playerX
+                          camY = 1.65f
+                          camZ = world.playerZ
+                          targetX = world.playerX + lookDirX * 10f
+                          targetY = 1.65f + world.playerPitch * 6f
+                          targetZ = world.playerZ + lookDirZ * 10f
+                      }
+
+                      Matrix.setLookAtM(viewMatrix, 0, camX, camY, camZ, targetX, targetY, targetZ, 0f, 1f, 0f)
+                      Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
+
+                      // Suelo isla
+                      drawBox(0f, -0.2f, 0f, 92f, 0.2f, 92f, floatArrayOf(0.18f, 0.42f, 0.20f, 1f))
+                      // Pistas/caminos
+                      drawBox(0f, -0.18f, 0f, 4f, 0.2f, 88f, floatArrayOf(0.30f, 0.29f, 0.27f, 1f))
+                      drawBox(0f, -0.18f, 0f, 88f, 0.2f, 4f, floatArrayOf(0.30f, 0.29f, 0.27f, 1f))
+
+                      // Obstáculos y edificios
+                      for (o in world.obstacles) {
+                          drawBox(o.x, 0f, o.z, o.halfW * 2f, o.height, o.halfD * 2f, o.color)
+                      }
+
+                      // Jugador (si es 3ra persona)
+                      if (world.thirdPerson) {
+                          drawBox(world.playerX, 0f, world.playerZ, 0.8f, 1.3f, 0.8f, floatArrayOf(0.15f, 0.55f, 0.95f, 1f))
+                          drawBox(world.playerX, 1.3f, world.playerZ, 0.55f, 0.55f, 0.55f, floatArrayOf(0.92f, 0.78f, 0.62f, 1f))
+                      }
+
+                      // Enemigos
+                      for (e in world.enemies) {
+                          drawBox(e.x, 0f, e.z, 0.85f, 1.35f, 0.85f, floatArrayOf(0.88f, 0.18f, 0.18f, 1f))
+                          drawBox(e.x, 1.35f, e.z, 0.55f, 0.55f, 0.55f, floatArrayOf(0.95f, 0.80f, 0.65f, 1f))
+                      }
+
+                      // Botín
+                      for (l in world.loots) {
+                          val col = when (l.type) {
+                              0 -> floatArrayOf(0.15f, 0.85f, 0.35f, 1f)
+                              1 -> floatArrayOf(0.95f, 0.65f, 0.10f, 1f)
+                              2 -> floatArrayOf(0.85f, 0.35f, 0.90f, 1f)
+                              else -> floatArrayOf(0.20f, 0.80f, 0.95f, 1f)
+                          }
+                          drawBox(l.x, 0.1f, l.z, 0.7f, 0.7f, 0.7f, col)
+                      }
+
+                      // Proyectiles
+                      for (p in world.projectiles) {
+                          drawBox(p.x, p.y, p.z, 0.22f, 0.22f, 0.22f, floatArrayOf(1f, 0.92f, 0.2f, 1f))
+                      }
+                  }
+
+                  GLES20.glDisableVertexAttribArray(posHandle)
+              }
+
+              private fun drawBox(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, color: FloatArray) {
+                  Matrix.setIdentityM(modelMatrix, 0)
+                  Matrix.translateM(modelMatrix, 0, x, y, z)
+                  Matrix.scaleM(modelMatrix, 0, sx, sy, sz)
+                  Matrix.multiplyMM(mvpMatrix, 0, vpMatrix, 0, modelMatrix, 0)
+                  GLES20.glUniformMatrix4fv(mvpHandle, 1, false, mvpMatrix, 0)
+                  GLES20.glUniform4fv(colorHandle, 1, color, 0)
+                  GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 30)
+              }
+
+              private fun loadShader(type: Int, code: String): Int {
+                  return GLES20.glCreateShader(type).also { shader ->
+                      GLES20.glShaderSource(shader, code)
+                      GLES20.glCompileShader(shader)
+                  }
+              }
+          }
+
+          class HudOverlayView(context: Context, private val world: GameWorld) : View(context) {
+              private var joyId = -1
+              private var lookId = -1
+              private var lastLookX = 0f
+              private var lastLookY = 0f
+
+              private var joyBaseX = 190f
+              private var joyBaseY = 0f
+              private var joyKnobX = 190f
+              private var joyKnobY = 0f
+              private val joyR = 105f
+
+              private var fireX = 0f
+              private var fireY = 0f
+              private val fireR = 92f
+              private var isFiring = false
+
+              private var weaponBtnX = 0f
+              private var weaponBtnY = 0f
+              private var sprintBtnX = 0f
+              private var sprintBtnY = 0f
+              private var camBtnX = 0f
+              private var camBtnY = 0f
+
+              private val paintJoyBase = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#33FFFFFF") }
+              private val paintJoyKnob = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#9938BDF8") }
+              private val paintFire = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#BBEF4444") }
+              private val paintBtn = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#881E293B") }
+              private val paintCrosshair = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  strokeWidth = 4f
+              }
+              private val paintHud = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 34f
+              }
+              private val paintBtnText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 26f
+                  textAlign = Paint.Align.CENTER
+              }
+              private val paintBanner = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 62f
+                  textAlign = Paint.Align.CENTER
+              }
+              private val radarBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#990F172A") }
+              private val radarZone = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.parseColor("#38BDF8")
+                  style = Paint.Style.STROKE
+                  strokeWidth = 3f
+              }
+              private val radarEnemy = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED }
+              private val radarPlayer = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.GREEN }
+
+              private val tickRunnable = object : Runnable {
+                  override fun run() {
+                      val moveRight = ((joyKnobX - joyBaseX) / joyR).coerceIn(-1f, 1f)
+                      val moveForward = ((joyBaseY - joyKnobY) / joyR).coerceIn(-1f, 1f)
+                      world.step(moveForward, moveRight)
+                      if (isFiring) world.firePlayerWeapon()
+                      invalidate()
+                      postDelayed(this, 16)
+                  }
+              }
+
+              init {
+                  post(tickRunnable)
+              }
+
+              override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                  joyBaseY = h - 190f
+                  joyKnobX = joyBaseX
+                  joyKnobY = joyBaseY
+
+                  fireX = w - 180f
+                  fireY = h - 190f
+
+                  weaponBtnX = w - 360f
+                  weaponBtnY = h - 130f
+
+                  sprintBtnX = w - 180f
+                  sprintBtnY = h - 360f
+
+                  camBtnX = w - 360f
+                  camBtnY = h - 260f
+              }
+
+              override fun onTouchEvent(event: MotionEvent): Boolean {
+                  if (world.matchOver) {
+                      if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                          world.reset()
+                      }
+                      return true
+                  }
+
+                  val action = event.actionMasked
+                  val idx = event.actionIndex
+                  val id = event.getPointerId(idx)
+                  val x = event.getX(idx)
+                  val y = event.getY(idx)
+
+                  when (action) {
+                      MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                          when {
+                              hypot((x - fireX).toDouble(), (y - fireY).toDouble()) <= fireR * 1.2f -> {
+                                  isFiring = true
+                                  world.firePlayerWeapon()
+                              }
+                              hypot((x - weaponBtnX).toDouble(), (y - weaponBtnY).toDouble()) <= 68f -> {
+                                  world.cycleWeapon()
+                              }
+                              hypot((x - sprintBtnX).toDouble(), (y - sprintBtnY).toDouble()) <= 64f -> {
+                                  world.isSprinting = !world.isSprinting
+                              }
+                              hypot((x - camBtnX).toDouble(), (y - camBtnY).toDouble()) <= 64f -> {
+                                  world.thirdPerson = !world.thirdPerson
+                              }
+                              joyId == -1 && x < width * 0.45f -> {
+                                  joyId = id
+                                  updateJoy(x, y)
+                              }
+                              lookId == -1 && x >= width * 0.45f -> {
+                                  lookId = id
+                                  lastLookX = x
+                                  lastLookY = y
+                              }
+                          }
+                      }
+                      MotionEvent.ACTION_MOVE -> {
+                          for (p in 0 until event.pointerCount) {
+                              val pid = event.getPointerId(p)
+                              val px = event.getX(p)
+                              val py = event.getY(p)
+                              if (pid == joyId) {
+                                  updateJoy(px, py)
+                              } else if (pid == lookId) {
+                                  val dx = px - lastLookX
+                                  val dy = py - lastLookY
+                                  lastLookX = px
+                                  lastLookY = py
+                                  world.playerYaw -= dx * 0.0065f
+                                  world.playerPitch = (world.playerPitch - dy * 0.004f).coerceIn(-0.65f, 0.55f)
+                              }
+                          }
+                      }
+                      MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                          if (id == joyId) {
+                              joyId = -1
+                              joyKnobX = joyBaseX
+                              joyKnobY = joyBaseY
+                          }
+                          if (id == lookId) {
+                              lookId = -1
+                          }
+                          isFiring = false
+                      }
+                  }
+                  return true
+              }
+
+              private fun updateJoy(tx: Float, ty: Float) {
+                  val dx = tx - joyBaseX
+                  val dy = ty - joyBaseY
+                  val d = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                  if (d <= joyR) {
+                      joyKnobX = tx
+                      joyKnobY = ty
+                  } else if (d > 0f) {
+                      joyKnobX = joyBaseX + dx / d * joyR
+                      joyKnobY = joyBaseY + dy / d * joyR
+                  }
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  val cx = width / 2f
+                  val cy = height / 2f
+
+                  // Mira central
+                  canvas.drawLine(cx - 18f, cy, cx + 18f, cy, paintCrosshair)
+                  canvas.drawLine(cx, cy - 18f, cx, cy + 18f, paintCrosshair)
+
+                  // Minimapa radar arriba a la derecha
+                  val radarR = 95f
+                  val radarCx = width - 125f
+                  val radarCy = 120f
+                  canvas.drawCircle(radarCx, radarCy, radarR, radarBg)
+                  val scale = radarR / 50f
+                  canvas.drawCircle(radarCx, radarCy, (world.zoneRadius * scale).coerceAtMost(radarR), radarZone)
+                  for (e in world.enemies) {
+                      canvas.drawCircle(radarCx + e.x * scale, radarCy + e.z * scale, 5f, radarEnemy)
+                  }
+                  canvas.drawCircle(radarCx + world.playerX * scale, radarCy + world.playerZ * scale, 6f, radarPlayer)
+
+                  // Controles táctiles
+                  canvas.drawCircle(joyBaseX, joyBaseY, joyR, paintJoyBase)
+                  canvas.drawCircle(joyKnobX, joyKnobY, 42f, paintJoyKnob)
+
+                  canvas.drawCircle(fireX, fireY, fireR, paintFire)
+                  canvas.drawText("DISPARAR", fireX, fireY + 10f, paintBtnText)
+
+                  canvas.drawCircle(weaponBtnX, weaponBtnY, 62f, paintBtn)
+                  canvas.drawText("ARMA", weaponBtnX, weaponBtnY + 9f, paintBtnText)
+
+                  canvas.drawCircle(sprintBtnX, sprintBtnY, 56f, paintBtn)
+                  canvas.drawText(if (world.isSprinting) "CORRER ON" else "CORRER", sprintBtnX, sprintBtnY + 9f, paintBtnText)
+
+                  canvas.drawCircle(camBtnX, camBtnY, 56f, paintBtn)
+                  canvas.drawText(if (world.thirdPerson) "3RA PERS" else "1RA PERS", camBtnX, camBtnY + 9f, paintBtnText)
+
+                  // HUD superior izquierdo
+                  val alive = world.enemies.size + (if (world.hp > 0) 1 else 0)
+                  canvas.drawText(
+                      "HP: ${world.hp} | Escudo: ${world.shield} | Vivos: $alive | Bajas: ${world.kills}",
+                      32f,
+                      54f,
+                      paintHud
+                  )
+                  canvas.drawText(
+                      "Arma: ${world.weapon.label} | Balas: ${world.ammo}",
+                      32f,
+                      98f,
+                      paintHud
+                  )
+
+                  if (world.matchOver) {
+                      val title = if (world.victory) "¡VICTORIA CAMPAL!" else "ELIMINADO"
+                      canvas.drawText(title, cx, cy - 25f, paintBanner)
+                      canvas.drawText("Bajas: ${world.kills} — Toca la pantalla para reiniciar", cx, cy + 40f, paintHud)
                   }
               }
           }
@@ -582,7 +879,7 @@ jobs:
               raw = (bytes([0]) + bytes([245, 158, 11, 255]) * s) * s
               return b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack("!IIBBBBB", s, s, 8, 6, 0, 0, 0)) + ch(b"IDAT", zlib.compress(raw)) + ch(b"IEND", b"")
           for d, px in {"mdpi":48,"hdpi":72,"xhdpi":96,"xxhdpi":144,"xxxhdpi":192}.items():
-              p = f"br_game_app/app/src/main/res/mipmap-{d}"
+              p = f"br3d_app/app/src/main/res/mipmap-{d}"
               for n in ("ic_launcher.png", "ic_launcher_round.png"):
                   with open(f"{p}/{n}", "wb") as f: f.write(png(px))
           EOF
@@ -599,11 +896,11 @@ jobs:
           gradle-version: 8.7
 
       - run: gradle assembleDebug --stacktrace
-        working-directory: br_game_app
+        working-directory: br3d_app
 
-      - run: cp br_game_app/app/build/outputs/apk/debug/app-debug.apk L.E.B-M-BR2018-v1.0.apk
+      - run: cp br3d_app/app/build/outputs/apk/debug/app-debug.apk L.E.B-M-BR3D-v1.0.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: L.E.B-M-BR2018-v1.0
-          path: L.E.B-M-BR2018-v1.0.apk
+          name: L.E.B-M-BR3D-v1.0
+          path: L.E.B-M-BR3D-v1.0.apk
